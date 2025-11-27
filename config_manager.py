@@ -117,6 +117,48 @@ class ConfigManager:
                 "required": False,
                 "type": "text"
             },
+            "MYSQL_ENABLED": {
+                "value": "false",
+                "description": "启用MySQL行情数据源",
+                "required": False,
+                "type": "boolean"
+            },
+            "MYSQL_HOST": {
+                "value": "127.0.0.1",
+                "description": "MySQL服务器地址",
+                "required": False,
+                "type": "text"
+            },
+            "MYSQL_PORT": {
+                "value": "3306",
+                "description": "MySQL端口",
+                "required": False,
+                "type": "text"
+            },
+            "MYSQL_USER": {
+                "value": "root",
+                "description": "MySQL用户名",
+                "required": False,
+                "type": "text"
+            },
+            "MYSQL_PASSWORD": {
+                "value": "",
+                "description": "MySQL密码",
+                "required": False,
+                "type": "password"
+            },
+            "MYSQL_DATABASE": {
+                "value": "choose_stock",
+                "description": "MySQL数据库名称",
+                "required": False,
+                "type": "text"
+            },
+            "MYSQL_STOCK_TABLE": {
+                "value": "stock_history",
+                "description": "存放行情数据的数据表名称",
+                "required": False,
+                "type": "text"
+            },
         }
     
     def read_env(self) -> Dict[str, str]:
@@ -203,6 +245,17 @@ class ConfigManager:
             lines.append(f'WEBHOOK_TYPE="{config.get("WEBHOOK_TYPE", "dingtalk")}"')
             lines.append(f'WEBHOOK_URL="{config.get("WEBHOOK_URL", "")}"')
             lines.append(f'WEBHOOK_KEYWORD="{config.get("WEBHOOK_KEYWORD", "aiagents通知")}"')
+            lines.append("")
+
+            # MySQL行情数据库配置
+            lines.append("# ========== MySQL行情数据库配置（可选）==========")
+            lines.append(f'MYSQL_ENABLED="{config.get("MYSQL_ENABLED", "false")}"')
+            lines.append(f'MYSQL_HOST="{config.get("MYSQL_HOST", "127.0.0.1")}"')
+            lines.append(f'MYSQL_PORT="{config.get("MYSQL_PORT", "3306")}"')
+            lines.append(f'MYSQL_USER="{config.get("MYSQL_USER", "root")}"')
+            lines.append(f'MYSQL_PASSWORD="{config.get("MYSQL_PASSWORD", "")}"')
+            lines.append(f'MYSQL_DATABASE="{config.get("MYSQL_DATABASE", "stock_data")}"')
+            lines.append(f'MYSQL_STOCK_TABLE="{config.get("MYSQL_STOCK_TABLE", "stock_daily")}"')
             
             with open(self.env_file, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))

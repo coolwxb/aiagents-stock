@@ -19,6 +19,23 @@ class DataSourceManager:
         self.tushare_token = os.getenv('TUSHARE_TOKEN', '')
         self.tushare_available = False
         self.tushare_api = None
+        self.mysql_enabled = os.getenv('MYSQL_ENABLED', 'false').lower() == 'true'
+        self.mysql_available = False
+        self.mysql_config = {
+            'host': os.getenv('MYSQL_HOST', '127.0.0.1'),
+            'port': int(os.getenv('MYSQL_PORT', '3306')),
+            'user': os.getenv('MYSQL_USER', 'root'),
+            'password': os.getenv('MYSQL_PASSWORD', ''),
+            'database': os.getenv('MYSQL_DATABASE', 'choose_stock'),
+            'stock_table': os.getenv('MYSQL_STOCK_TABLE', 'stock_history'),
+        }
+        self._pymysql = None
+        
+        if self.mysql_enabled:
+            self._init_mysql()
+        else:
+            print("ℹ️ 未启用MySQL数据源")
+            self.mysql_available = False
         
         # 初始化tushare
         if self.tushare_token:
@@ -33,6 +50,8 @@ class DataSourceManager:
                 self.tushare_available = False
         else:
             print("ℹ️ 未配置Tushare Token，将仅使用Akshare数据源")
+
+        
     
     def get_stock_hist_data(self, symbol, start_date=None, end_date=None, adjust='qfq'):
         """
@@ -55,7 +74,15 @@ class DataSourceManager:
         else:
             end_date = datetime.now().strftime('%Y%m%d')
         
-        # 优先使用akshare
+        mysql_start_date = self._format_date_for_mysql(start_date)
+        mysql_end_date = self._format_date_for_mysql(end_date)
+
+        # 优先使用MySQL
+        mysql_df = self._fetch_stock_hist_from_mysql(symbol, mysql_start_date, mysql_end_date)
+        if mysql_df is not None:
+            return mysql_df
+
+        # MySQL不可用时优先使用akshare
         try:
             import akshare as ak
             print(f"[Akshare] 正在获取 {symbol} 的历史数据...")
@@ -372,6 +399,127 @@ class DataSourceManager:
         if '.' in ts_code:
             return ts_code.split('.')[0]
         return ts_code
+
+    def _init_mysql(self):
+        """初始化MySQL配置"""
+        if not self.mysql_enabled:
+            print("ℹ️ 未启用MySQL数据源")
+            return
+        try:
+            import pymysql
+            self._pymysql = pymysql
+            # 测试一次连接，确认配置可用
+            conn = self._get_mysql_connection()
+            if conn:
+                conn.close()
+                self.mysql_available = True
+                print("✅ MySQL数据源初始化成功")
+        except Exception as e:
+            print(f"⚠️ MySQL数据源初始化失败: {e}")
+            self.mysql_available = False
+
+    def _get_mysql_connection(self):
+        """创建MySQL连接"""
+        if not self.mysql_enabled:
+            return None
+        if not self._pymysql:
+            try:
+                import pymysql
+                self._pymysql = pymysql
+            except Exception as e:
+                print(f"⚠️ 无法导入pymysql模块: {e}")
+                return None
+        try:
+            return self._pymysql.connect(
+                host=self.mysql_config['host'],
+                port=self.mysql_config['port'],
+                user=self.mysql_config['user'],
+                password=self.mysql_config['password'],
+                database=self.mysql_config['database'],
+                cursorclass=self._pymysql.cursors.DictCursor
+            )
+        except Exception as e:
+            print(f"⚠️ 连接MySQL失败: {e}")
+            return None
+
+    def _fetch_stock_hist_from_mysql(self, symbol, start_date=None, end_date=None):
+        """
+        从MySQL行情库获取历史数据
+        Args:
+            symbol: 6位股票代码
+            start_date: YYYY-MM-DD 格式
+            end_date: YYYY-MM-DD 格式
+        """
+        if not self.mysql_available:
+            return None
+        conn = self._get_mysql_connection()
+        if conn is None:
+            return None
+        try:
+            table = self.mysql_config['stock_table']
+            query = f"""
+                SELECT 
+                    trade_date,
+                    open_price AS open,
+                    close_price AS close,
+                    high_price AS high,
+                    low_price AS low,
+                    volume,
+                    amount,
+                    amplitude,
+                    pct_chg,
+                    price_chg,
+                    turnover_rate
+                FROM `{table}`
+                WHERE stock_code = %s
+                  AND (deleted = 0 OR deleted IS NULL)
+            """
+            params = [symbol]
+            if start_date:
+                query += " AND trade_date >= %s"
+                params.append(start_date)
+            if end_date:
+                query += " AND trade_date <= %s"
+                params.append(end_date)
+            query += " ORDER BY trade_date"
+
+            with conn.cursor() as cursor:
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+
+            if not rows:
+                print(f"[MySQL] ⚠️ 未找到 {symbol} 对应的数据")
+                return None
+
+            df = pd.DataFrame(rows)
+            df = df.rename(columns={
+                'trade_date': 'date',
+                'pct_chg': 'pct_change',
+                'price_chg': 'change',
+                'turnover_rate': 'turnover'
+            })
+            df['date'] = pd.to_datetime(df['date'])
+            print(f"[MySQL] ✅ 成功获取 {len(df)} 条数据")
+            return df
+        except Exception as e:
+            print(f"[MySQL] ❌ 获取失败: {e}")
+            return None
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _format_date_for_mysql(self, date_str):
+        """将YYYYMMDD格式转换为YYYY-MM-DD"""
+        if not date_str:
+            return None
+        try:
+            if '-' in date_str:
+                return datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y-%m-%d")
+            return datetime.strptime(date_str, "%Y%m%d").strftime("%Y-%m-%d")
+        except Exception:
+            return None
 
 
 # 全局数据源管理器实例

@@ -19,8 +19,21 @@ DEFAULT_INTERVAL = "1d"  # 默认日线数据
 MINIQMT_CONFIG = {
     'enabled': os.getenv("MINIQMT_ENABLED", "false").lower() == "true",
     'account_id': os.getenv("MINIQMT_ACCOUNT_ID", ""),
+    'userdata_path': os.getenv("MINIQMT_USERDATA_PATH", "E:\\zhongjin_qmt\\userdata_mini"),
+    'account_type': os.getenv("MINIQMT_ACCOUNT_TYPE", "STOCK"),
     'host': os.getenv("MINIQMT_HOST", "127.0.0.1"),
     'port': int(os.getenv("MINIQMT_PORT", "58610")),
+}
+
+# MySQL行情数据库配置
+MYSQL_CONFIG = {
+    'enabled': os.getenv("MYSQL_ENABLED", "false").lower() == "true",
+    'host': os.getenv("MYSQL_HOST", "127.0.0.1"),
+    'port': int(os.getenv("MYSQL_PORT", "3306")),
+    'user': os.getenv("MYSQL_USER", "root"),
+    'password': os.getenv("MYSQL_PASSWORD", ""),
+    'database': os.getenv("MYSQL_DATABASE", "choose_stock"),
+    'stock_table': os.getenv("MYSQL_STOCK_TABLE", "stock_history"),
 }
 
 # TDX股票数据API配置项目地址github.com/oficcejo/tdx-api

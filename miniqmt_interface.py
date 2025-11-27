@@ -7,9 +7,13 @@ MiniQMT量化交易接口
 """
 
 import json
+from tkinter import NO
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from enum import Enum
+from xtquant import XtQuantTrader, StockAccount, XtQuantTraderCallback, xtconstant
+import time
+
 
 class TradeAction(Enum):
     """交易动作枚举"""
@@ -30,6 +34,72 @@ class PositionSide(Enum):
     SHORT = "short"  # 空头
     NONE = "none"  # 无持仓
 
+# 交易回调类
+class MyXtQuantTraderCallback(XtQuantTraderCallback):
+    def on_disconnected(self):
+        """
+        连接断开
+        :return:
+        """
+        print("connection lost, 交易接口断开，即将重连")
+        global xt_trader
+        xt_trader = None
+    
+    def on_stock_order(self, order):
+        print(f'委托回报: 股票代码:{order.stock_code} 账号:{order.account_id}, 订单编号:{order.order_id} 柜台合同编号:{order.order_sysid} \
+            委托状态:{order.order_status} 成交数量:{order.order_status} 委托数量:{order.order_volume} 已成数量：{order.traded_volume}')
+        
+    def on_stock_trade(self, trade):
+        print(f'成交回报: 股票代码:{trade.stock_code} 账号:{trade.account_id}, 订单编号:{trade.order_id} 柜台合同编号:{trade.order_sysid} \
+            成交编号:{trade.traded_id} 成交数量:{trade.traded_volume} 委托数量:{trade.direction} ')
+
+    def on_order_error(self, order_error):
+        print(f"报单失败： 订单编号：{order_error.order_id} 下单失败具体信息:{order_error.error_msg} 委托备注:{order_error.order_remark}")
+
+    def on_cancel_error(self, cancel_error):
+        print(f"撤单失败: 订单编号：{cancel_error.order_id} 失败具体信息:{cancel_error.error_msg} 市场：{cancel_error.market}")
+
+    def on_order_stock_async_response(self, response):
+        print(f"异步下单的请求序号:{response.seq}, 订单编号：{response.order_id} ")
+
+    def on_account_status(self, status):
+        print(f"账号状态发生变化， 账号:{status.account_id} 最新状态：{status.status}")
+
+# 创建交易接口
+def create_trader(xt_acc,path, session_id):
+    trader = XtQuantTrader(path, session_id,callback=MyXtQuantTraderCallback())
+    trader.start()
+    connect_result = trader.connect()
+    trader.subscribe(xt_acc)
+    return trader if connect_result == 0 else None
+
+# 尝试连接交易接口
+def try_connect(xt_acc,path):
+    session_id_range = [i for i in range(100, 130)]
+
+    import random
+    random.shuffle(session_id_range)
+
+    # 遍历尝试session_id列表尝试连接
+    for session_id in session_id_range:
+        trader = create_trader(xt_acc,path, session_id)
+        if trader:
+            print(f'连接成功，session_id:{session_id}')
+            return trader
+        else:
+            print(f'连接失败，session_id:{session_id}，继续尝试下一个id')
+            continue
+
+    print('所有id都尝试后仍失败，放弃连接')
+    return None
+
+# 获取交易接口
+def get_xttrader(xt_acc,path):
+    global xt_trader
+    if xt_trader is None:
+        xt_trader = try_connect(xt_acc,path)
+    return xt_trader   
+
 class MiniQMTInterface:
     """
     MiniQMT量化交易接口类
@@ -46,11 +116,18 @@ class MiniQMTInterface:
         self.config = config or {}
         self.connected = False
         self.account_id = None
+        self.account_type = None # 账户类型 stock 股票账户，credit 信用账户
+        self.userdata_path = None # 用户数据路径
         self.positions = {}  # 持仓信息
         self.orders = {}  # 订单信息
         self.enabled = self.config.get('enabled', False)
+        self.stock_account = None
+        self.xt_trader = None
+
+
+
         
-    def connect(self, account_id: str = None) -> Tuple[bool, str]:
+    def connect(self, account_id: str = None, account_type: str = None, userdata_path: str = None) -> Tuple[bool, str]:
         """
         连接到MiniQMT
         
@@ -61,16 +138,23 @@ class MiniQMTInterface:
             (成功标志, 消息)
         """
         try:
-            # TODO: 实现与MiniQMT的实际连接逻辑
+            # 实现与MiniQMT的实际连接逻辑
             self.account_id = account_id or self.config.get('account_id')
+            self.account_type = account_type or self.config.get('account_type', 'stock')
+            self.userdata_path = userdata_path or self.config.get('userdata_path')
             
             if not self.account_id:
                 return False, "账户ID未配置"
+            if not self.account_type:
+                return False, "账户类型未配置"
+            if not self.userdata_path:
+                return False, "用户数据路径未配置"
             
-            # 预留接口：连接MiniQMT
-            # from xtquant import xtdata
-            # xtdata.connect()
-            
+            # 连接MiniQMT
+            self.stock_account = StockAccount(self.account_id, self.account_type)
+            self.xt_trader = get_xttrader(self.stock_account, self.userdata_path)
+            if not self.xt_trader:
+                return False, "交易接口连接失败"
             self.connected = True
             return True, f"已连接到账户 {self.account_id}"
             
@@ -81,7 +165,9 @@ class MiniQMTInterface:
     def disconnect(self) -> bool:
         """断开连接"""
         try:
-            # TODO: 实现断开连接逻辑
+            if self.xt_trader:
+                self.xt_trader.disconnect()
+                self.xt_trader = None
             self.connected = False
             return True
         except Exception as e:
@@ -105,15 +191,20 @@ class MiniQMTInterface:
                 'connected': False
             }
         
-        # TODO: 实现获取账户信息的逻辑
-        # 预留接口：从MiniQMT获取账户信息
+       
+        # 从MiniQMT获取账户信息
+        #取账号信息
+        if self.account_type == 'stock':
+            account_info = self.xt_trader.query_stock_asset(self.stock_account)
+        elif self.account_type == 'credit':
+            account_info = self.xt_trader.query_credit_detail(self.credit_account)
         return {
-            'account_id': self.account_id,
-            'total_assets': 0.0,  # 总资产
-            'available_cash': 0.0,  # 可用资金
-            'market_value': 0.0,  # 持仓市值
-            'frozen_cash': 0.0,  # 冻结资金
-            'profit_loss': 0.0,  # 盈亏
+            'account_id': account_info.account_id,
+            'total_assets': account_info.total_assets,  # 总资产
+            'available_cash': account_info.cash,  # 可用资金
+            'market_value': account_info.market_value,  # 持仓市值
+            'frozen_cash': account_info.frozen_cash,  # 冻结资金
+            'profit_loss': account_info.total_assets-account_info.cash-account_info.frozen_cash-account_info.market_value,  # 盈亏
             'connected': True
         }
     
@@ -127,12 +218,13 @@ class MiniQMTInterface:
         if not self.is_connected():
             return []
         
-        # TODO: 实现获取持仓的逻辑
-        # 预留接口：从MiniQMT获取持仓信息
-        # from xtquant import xttrader
-        # positions = xttrader.query_stock_positions(self.account_id)
         
-        return list(self.positions.values())
+        # 从MiniQMT获取持仓信息
+        if self.account_type == 'stock':
+            positions = self.xt_trader.query_stock_positions(self.stock_account)
+        elif self.account_type == 'credit':
+            positions = self.xt_trader.query_credit_subjects(self.credit_account)
+        return positions
     
     def get_position(self, symbol: str) -> Optional[Dict]:
         """
@@ -146,8 +238,14 @@ class MiniQMTInterface:
         """
         if not self.is_connected():
             return None
-        
-        return self.positions.get(symbol)
+        # 遍历持仓信息
+        for position in self.positions:
+            if position.stock_code == symbol:
+                # 获取持仓可用数量
+                available_quantity = position.can_use_volume
+                if available_quantity > 0:
+                    return position.to_dict()
+        return None
     
     def place_order(self, 
                    symbol: str, 
@@ -179,38 +277,19 @@ class MiniQMTInterface:
             return False, "限价单必须指定价格", ""
         
         try:
-            # TODO: 实现实际下单逻辑
+            
             # 预留接口：通过MiniQMT下单
-            # from xtquant import xttrader
-            # if action == TradeAction.BUY:
-            #     order_id = xttrader.order_stock(
-            #         self.account_id, symbol, 
-            #         xtconstant.STOCK_BUY, quantity, 
-            #         xtconstant.FIX_PRICE, price
-            #     )
-            # elif action == TradeAction.SELL:
-            #     order_id = xttrader.order_stock(
-            #         self.account_id, symbol, 
-            #         xtconstant.STOCK_SELL, quantity, 
-            #         xtconstant.FIX_PRICE, price
-            #     )
-            
-            # 模拟订单ID
-            order_id = f"ORD_{symbol}_{datetime.now().strftime('%Y%m%d%H%M%S')}"
-            
-            # 记录订单
-            self.orders[order_id] = {
-                'order_id': order_id,
-                'symbol': symbol,
-                'action': action.value,
-                'quantity': quantity,
-                'price': price,
-                'order_type': order_type.value,
-                'status': 'submitted',
-                'create_time': datetime.now().isoformat()
-            }
-            
-            return True, f"订单已提交: {order_id}", order_id
+            if action == TradeAction.BUY:
+                order_id = self.xt_trader.order_stock_async(self.stock_account,
+                 symbol, xtconstant.STOCK_BUY, quantity, xtconstant.FIX_PRICE, price, 'strategy_name', f'买入{symbol}')
+
+            elif action == TradeAction.SELL:
+                order_id = self.xt_trader.order_stock_async(
+                    self.stock_account, symbol, 
+                    xtconstant.STOCK_SELL, quantity, xtconstant.FIX_PRICE, price, 'strategy_name', f'卖出{symbol}')
+            if order_id == -1:
+                return False, "下单失败", None
+            return True, f"订单已提交: {order_id}", str(order_id)
             
         except Exception as e:
             return False, f"下单失败: {str(e)}", ""
@@ -229,17 +308,11 @@ class MiniQMTInterface:
             return False, "未连接到MiniQMT"
         
         try:
-            # TODO: 实现撤单逻辑
-            # 预留接口：通过MiniQMT撤单
-            # from xtquant import xttrader
-            # xttrader.cancel_order(self.account_id, order_id)
-            
-            if order_id in self.orders:
-                self.orders[order_id]['status'] = 'cancelled'
-                return True, f"订单 {order_id} 已撤销"
-            else:
-                return False, "订单不存在"
-                
+            # 通过MiniQMT撤单
+            cancel_result = self.xt_trader.cancel_order_stock_async(self.stock_account, order_id)
+            if cancel_result == -1:
+                return False, "撤单失败"
+            return True, f"订单 {order_id} 已撤销", f"委托序号:{cancel_result}"
         except Exception as e:
             return False, f"撤单失败: {str(e)}"
     
@@ -506,7 +579,7 @@ class MiniQMTInterface:
             if not position:
                 return False, "无持仓，无法卖出"
             
-            available_quantity = position.get('quantity', 0)
+            available_quantity = position['can_use_volume']
             if quantity > available_quantity:
                 return False, f"持仓不足: 需要{quantity}股, 可用{available_quantity}股"
             
@@ -613,3 +686,70 @@ def get_miniqmt_status() -> Dict:
         'ready': miniqmt.is_connected()
     }
 
+
+def main():
+    """
+    简易本地测试入口：
+    1. 准备真实的账户配置（account_id/account_type/userdata_path）
+    2. 运行脚本观察各接口方法的执行结果
+    """
+    sample_config = {
+        'enabled': True,
+        'account_id': '',
+        'account_type': 'STOCK',
+        'userdata_path': 'E:\\zhongjin_qmt\\userdata_mini'
+    }
+
+    success, message = init_miniqmt(sample_config)
+    print(f'[MiniQMT] 初始化: {message}')
+
+    status = get_miniqmt_status()
+    print('[MiniQMT] 当前状态:')
+    print(json.dumps(status, ensure_ascii=False, indent=2))
+
+    if not success or not status.get('ready'):
+        print('接口未就绪，确认MiniQMT客户端已启动、配置正确后再试。')
+        return
+
+    interface = miniqmt
+
+    account_info = interface.get_account_info()
+    print('[MiniQMT] 账户信息:')
+    print(json.dumps(account_info, ensure_ascii=False, indent=2))
+
+    positions = interface.get_positions()
+    print(f'[MiniQMT] 当前持仓数量: {len(positions)}')
+
+    demo_symbol = '600000.SH'
+    target_price = 10.5
+    quantity = interface.calculate_position_size(demo_symbol, target_price)
+    print(f'[MiniQMT] 建议买入数量: {quantity}')
+
+    valid, reason = interface.validate_trade(
+        symbol=demo_symbol,
+        action=TradeAction.BUY,
+        quantity=quantity or 100,
+        price=target_price
+    )
+    print(f'[MiniQMT] 买入验证: {valid}, 原因: {reason}')
+
+    # risk_metrics = interface.get_risk_metrics(demo_symbol)
+    # print('[MiniQMT] 风险指标:')
+    # print(json.dumps(risk_metrics, ensure_ascii=False, indent=2))
+
+    # signal = {
+    #     'type': 'entry',
+    #     'price': target_price,
+    #     'message': '演示进场信号'
+    # }
+    # executed, exec_msg = interface.execute_strategy_signal(
+    #     stock_id=1,
+    #     symbol=demo_symbol,
+    #     signal=signal,
+    #     position_size=0.1
+    # )
+    # print(f'[MiniQMT] 信号执行: {executed}, 信息: {exec_msg}')
+
+
+if __name__ == '__main__':
+    main()
