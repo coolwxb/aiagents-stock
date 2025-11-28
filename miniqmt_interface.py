@@ -8,11 +8,18 @@ MiniQMT量化交易接口
 
 import json
 from tkinter import NO
+from turtle import pos
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from enum import Enum
-from xtquant import XtQuantTrader, StockAccount, XtQuantTraderCallback, xtconstant
+from xtquant import xtdata
+from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
+from xtquant.xttype import StockAccount
+from xtquant import xtconstant
 import time
+
+# 单例交易连接实例，由 get_xttrader 管理
+xt_trader = None
 
 
 class TradeAction(Enum):
@@ -140,7 +147,7 @@ class MiniQMTInterface:
         try:
             # 实现与MiniQMT的实际连接逻辑
             self.account_id = account_id or self.config.get('account_id')
-            self.account_type = account_type or self.config.get('account_type', 'stock')
+            self.account_type = account_type or self.config.get('account_type', 'STOCK')
             self.userdata_path = userdata_path or self.config.get('userdata_path')
             
             if not self.account_id:
@@ -194,17 +201,17 @@ class MiniQMTInterface:
        
         # 从MiniQMT获取账户信息
         #取账号信息
-        if self.account_type == 'stock':
+        if self.account_type == 'STOCK':
             account_info = self.xt_trader.query_stock_asset(self.stock_account)
-        elif self.account_type == 'credit':
+        elif self.account_type == 'CREDIT':
             account_info = self.xt_trader.query_credit_detail(self.credit_account)
         return {
             'account_id': account_info.account_id,
-            'total_assets': account_info.total_assets,  # 总资产
+            'total_assets': account_info.total_asset,  # 总资产
             'available_cash': account_info.cash,  # 可用资金
             'market_value': account_info.market_value,  # 持仓市值
             'frozen_cash': account_info.frozen_cash,  # 冻结资金
-            'profit_loss': account_info.total_assets-account_info.cash-account_info.frozen_cash-account_info.market_value,  # 盈亏
+            'profit_loss': account_info.total_asset-account_info.cash-account_info.frozen_cash-account_info.market_value,  # 盈亏
             'connected': True
         }
     
@@ -220,9 +227,9 @@ class MiniQMTInterface:
         
         
         # 从MiniQMT获取持仓信息
-        if self.account_type == 'stock':
+        if self.account_type == 'STOCK':
             positions = self.xt_trader.query_stock_positions(self.stock_account)
-        elif self.account_type == 'credit':
+        elif self.account_type == 'CREDIT':
             positions = self.xt_trader.query_credit_subjects(self.credit_account)
         return positions
     
@@ -695,7 +702,7 @@ def main():
     """
     sample_config = {
         'enabled': True,
-        'account_id': '',
+        'account_id': '8004016386',
         'account_type': 'STOCK',
         'userdata_path': 'E:\\zhongjin_qmt\\userdata_mini'
     }
@@ -719,6 +726,7 @@ def main():
 
     positions = interface.get_positions()
     print(f'[MiniQMT] 当前持仓数量: {len(positions)}')
+    
 
     demo_symbol = '600000.SH'
     target_price = 10.5
