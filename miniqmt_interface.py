@@ -12,9 +12,8 @@ from turtle import pos
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from enum import Enum
-from xtquant import xtdata
 from xtquant.xttrader import XtQuantTrader, XtQuantTraderCallback
-from xtquant.xttype import StockAccount
+
 from xtquant import xtconstant
 import time
 
@@ -74,6 +73,7 @@ class MyXtQuantTraderCallback(XtQuantTraderCallback):
 
 # 创建交易接口
 def create_trader(xt_acc,path, session_id):
+   
     trader = XtQuantTrader(path, session_id,callback=MyXtQuantTraderCallback())
     trader.start()
     connect_result = trader.connect()
@@ -158,6 +158,7 @@ class MiniQMTInterface:
                 return False, "用户数据路径未配置"
             
             # 连接MiniQMT
+            from xtquant.xttype import StockAccount
             self.stock_account = StockAccount(self.account_id, self.account_type)
             self.xt_trader = get_xttrader(self.stock_account, self.userdata_path)
             if not self.xt_trader:

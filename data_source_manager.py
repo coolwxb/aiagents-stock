@@ -33,6 +33,7 @@ class DataSourceManager:
         
         if self.mysql_enabled:
             self._init_mysql()
+            return None
         else:
             print("ℹ️ 未启用MySQL数据源")
             self.mysql_available = False
