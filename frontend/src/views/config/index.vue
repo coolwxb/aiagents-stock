@@ -129,24 +129,27 @@
                   <el-switch v-model="configForm.trading.miniqmtEnabled" />
                   <span class="form-tip">开启后可接入 MiniQMT，实现自动策略交易</span>
                 </el-form-item>
-                <el-form-item label="账户 ID">
+                <el-form-item label="账户">
                   <el-input
                     v-model="configForm.trading.miniqmtAccountId"
                     :disabled="!configForm.trading.miniqmtEnabled"
                   />
                 </el-form-item>
-                <el-form-item label="服务器地址">
-                  <el-input
-                    v-model="configForm.trading.miniqmtHost"
+                <el-form-item label="账户类型">
+                  <el-select
+                    v-model="configForm.trading.miniqmtAccountType"
                     :disabled="!configForm.trading.miniqmtEnabled"
-                    placeholder="127.0.0.1"
-                  />
+                    placeholder="请选择账户类型"
+                  >
+                    <el-option label="股票账户（STOCK）" value="STOCK" />
+                    <el-option label="信用账户（CREDIT）" value="CREDIT" />
+                  </el-select>
                 </el-form-item>
-                <el-form-item label="服务器端口">
+                <el-form-item label="用户数据地址">
                   <el-input
-                    v-model="configForm.trading.miniqmtPort"
+                    v-model="configForm.trading.miniqmtUserdataPath"
                     :disabled="!configForm.trading.miniqmtEnabled"
-                    placeholder="58610"
+                    placeholder="E:\\zhongjin_qmt\\userdata_mini"
                   />
                 </el-form-item>
                 <el-alert
@@ -159,7 +162,8 @@
               <div class="hint-block">
                 <p class="hint-title">MiniQMT 使用提醒</p>
                 <ul class="hint-list">
-                  <li>确保 MiniQMT 客户端已启动并允许外部连接，账户 ID、主机、端口需与客户端设置一致。</li>
+                  <li>确保 MiniQMT 客户端已启动，账户 ID、账户类型与客户端保持一致。</li>
+                  <li>用户数据目录一般位于 MiniQMT 安装路径下的 <code>userdata_mini</code> 目录，请填写绝对路径。</li>
                   <li>量化交易会直接影响真实资金，建议在沙盒或小额账户中充分验证策略后再启用。</li>
                 </ul>
               </div>
@@ -301,8 +305,8 @@ const defaultFlatConfig = () => ({
   MYSQL_STOCK_TABLE: 'stock_history',
   MINIQMT_ENABLED: 'false',
   MINIQMT_ACCOUNT_ID: '',
-  MINIQMT_HOST: '127.0.0.1',
-  MINIQMT_PORT: '58610',
+  MINIQMT_ACCOUNT_TYPE: 'STOCK',
+  MINIQMT_USERDATA_PATH: 'E:\\zhongjin_qmt\\userdata_mini',
   EMAIL_ENABLED: 'false',
   SMTP_SERVER: '',
   SMTP_PORT: '587',
@@ -359,8 +363,8 @@ export default {
         trading: {
           miniqmtEnabled: false,
           miniqmtAccountId: '',
-          miniqmtHost: '127.0.0.1',
-          miniqmtPort: '58610'
+          miniqmtAccountType: 'STOCK',
+          miniqmtUserdataPath: 'E:\\zhongjin_qmt\\userdata_mini'
         },
         notification: {
           emailEnabled: false,
@@ -413,8 +417,8 @@ export default {
         trading: {
           miniqmtEnabled: this.boolFromString(flat.MINIQMT_ENABLED),
           miniqmtAccountId: flat.MINIQMT_ACCOUNT_ID || '',
-          miniqmtHost: flat.MINIQMT_HOST || '127.0.0.1',
-          miniqmtPort: flat.MINIQMT_PORT || '58610'
+          miniqmtAccountType: flat.MINIQMT_ACCOUNT_TYPE || 'STOCK',
+          miniqmtUserdataPath: flat.MINIQMT_USERDATA_PATH || 'E:\\zhongjin_qmt\\userdata_mini'
         },
         notification: {
           emailEnabled: this.boolFromString(flat.EMAIL_ENABLED),
@@ -444,8 +448,8 @@ export default {
         MYSQL_STOCK_TABLE: form.dataSource.mysqlStockTable || 'stock_history',
         MINIQMT_ENABLED: this.boolToString(form.trading.miniqmtEnabled),
         MINIQMT_ACCOUNT_ID: form.trading.miniqmtAccountId || '',
-        MINIQMT_HOST: form.trading.miniqmtHost || '127.0.0.1',
-        MINIQMT_PORT: form.trading.miniqmtPort || '58610',
+        MINIQMT_ACCOUNT_TYPE: form.trading.miniqmtAccountType || 'STOCK',
+        MINIQMT_USERDATA_PATH: form.trading.miniqmtUserdataPath || 'E:\\zhongjin_qmt\\userdata_mini',
         EMAIL_ENABLED: this.boolToString(form.notification.emailEnabled),
         SMTP_SERVER: form.notification.smtpServer || '',
         SMTP_PORT: form.notification.smtpPort || '587',
@@ -520,8 +524,8 @@ export default {
         '# ========== MiniQMT量化交易配置（可选）==========',
         `MINIQMT_ENABLED="${flat.MINIQMT_ENABLED}"`,
         `MINIQMT_ACCOUNT_ID="${flat.MINIQMT_ACCOUNT_ID}"`,
-        `MINIQMT_HOST="${flat.MINIQMT_HOST}"`,
-        `MINIQMT_PORT="${flat.MINIQMT_PORT}"`,
+        `MINIQMT_ACCOUNT_TYPE="${flat.MINIQMT_ACCOUNT_TYPE}"`,
+        `MINIQMT_USERDATA_PATH="${flat.MINIQMT_USERDATA_PATH}"`,
         '',
         '# ========== 邮件通知配置（可选）==========',
         `EMAIL_ENABLED="${flat.EMAIL_ENABLED}"`,

@@ -14,8 +14,29 @@ const name = defaultSettings.title || 'vue Admin Template' // page title
 // You can change the port by the following methods:
 // port = 9528 npm run dev OR npm run dev --port = 9528
 const port = process.env.port || process.env.npm_config_port || 9528 // dev port
+const useMock = process.env.VUE_APP_USE_MOCK === 'true'
 
 // All configuration item explanations can be find in https://cli.vuejs.org/config/
+const devServer = {
+  port: port,
+  open: true,
+  overlay: {
+    warnings: false,
+    errors: true
+  },
+  proxy: {
+    '/dev-api': {
+      target: 'http://localhost:8000', // FastAPI 服务地址
+      changeOrigin: true,
+      pathRewrite: { '^/dev-api': '' } // 如果后端也是 /api/v1 开头可保持不变
+    }
+  }
+}
+
+if (useMock) {
+  devServer.before = require('./mock/mock-server.js')
+}
+
 module.exports = {
   /**
    * You will need to set publicPath if you plan to deploy your site under a sub path,
@@ -29,22 +50,7 @@ module.exports = {
   assetsDir: 'static',
   lintOnSave: process.env.NODE_ENV === 'development',
   productionSourceMap: false,
-  devServer: {
-    port: port,
-    open: true,
-    overlay: {
-      warnings: false,
-      errors: true
-    },
-    proxy: {
-      '/dev-api': {
-        target: 'http://localhost:8000', // FastAPI 服务地址
-        changeOrigin: true,
-        pathRewrite: { '^/dev-api': '' } // 如果后端也是 /api/v1 开头可保持不变
-      }
-    },
-    before: require('./mock/mock-server.js')
-  },
+  devServer,
   configureWebpack: {
     // provide the app's title in webpack's name field, so that
     // it can be accessed in index.html to inject the correct title.

@@ -12,7 +12,8 @@ from app.api.v1 import (
     portfolio,
     trading,
     notification,
-    config
+    config,
+    user
 )
 
 api_router = APIRouter()
@@ -28,4 +29,5 @@ api_router.include_router(portfolio.router, prefix="/portfolio", tags=["持仓�
 api_router.include_router(trading.router, prefix="/trading", tags=["量化交易"])
 api_router.include_router(notification.router, prefix="/notification", tags=["通知服务"])
 api_router.include_router(config.router, prefix="/config", tags=["配置管理"])
+api_router.include_router(user.router, prefix="/user", tags=["用户管理"])
 

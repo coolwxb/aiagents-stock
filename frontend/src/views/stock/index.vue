@@ -261,6 +261,11 @@
                   </div>
                 </div>
                 <el-tabs class="agent-tabs">
+                  <el-tab-pane label="🤝 团队讨论">
+                    <div class="discussion-card">
+                      <div class="markdown-content" v-html="renderMarkdown(analysisResult.discussion_result)"></div>
+                    </div>
+                  </el-tab-pane>
                   <el-tab-pane
                     v-for="agent in agentList"
                     :key="agent.agent_name"
@@ -270,17 +275,10 @@
                       <p class="role">{{ agent.agent_role }}</p>
                       <p class="focus">关注领域：{{ agent.focus_areas.join('、') }}</p>
                       <p class="timestamp">分析时间：{{ agent.timestamp }}</p>
-                      <p class="analysis-text">{{ agent.analysis }}</p>
+                      <div class="markdown-content" v-html="renderMarkdown(agent.analysis)"></div>
                     </div>
                   </el-tab-pane>
                 </el-tabs>
-              </section>
-
-              <section class="sub-section">
-                <h3>🤝 团队讨论</h3>
-                <el-card shadow="never" class="discussion-card">
-                  <p>{{ analysisResult.discussion_result }}</p>
-                </el-card>
               </section>
 
               <section class="sub-section">
@@ -379,19 +377,64 @@
             <el-timeline-item
               v-for="record in filteredHistory"
               :key="record.id"
-              :timestamp="record.analysis_date"
+              :timestamp="formatDate(record.created_at)"
               placement="top"
             >
               <el-card shadow="never" class="history-card">
                 <div class="card-header">
-                  <div>
-                    <h4>{{ record.stock_name }} ({{ record.symbol }})</h4>
-                    <p class="subtitle">评级：{{ record.rating }}</p>
-                    <p class="tagline">周期：{{ record.period }}</p>
+                  <div class="stock-info">
+                    <h4>{{ record.stock_name }} ({{ record.stock_code }})</h4>
+                    <div class="rating-section">
+                      <el-tag :type="getRatingType(record.rating)">{{ record.rating }}</el-tag>
+                      <span class="confidence">信心度：{{ formatConfidence(record.confidence_level) }}</span>
+                    </div>
                   </div>
-                  <el-tag type="success">信心 {{ record.confidence || 'N/A' }}</el-tag>
+                  <div class="action-buttons">
+                    <el-button size="mini" type="primary" @click="viewDetail(record)">查看详情</el-button>
+                  </div>
                 </div>
-                <p class="summary">{{ record.summary || 'AI 分析记录' }}</p>
+                
+                <div class="decision-summary" v-if="record.analysis_result && record.analysis_result.final_decision">
+                  <div class="summary-row">
+                    <div class="summary-item">
+                      <span class="label">目标价</span>
+                      <span class="value">{{ formatCurrency(record.analysis_result.final_decision.target_price) }}</span>
+                    </div>
+                    <div class="summary-item">
+                      <span class="label">持仓周期</span>
+                      <span class="value">{{ record.analysis_result.final_decision.holding_period || 'N/A' }}</span>
+                    </div>
+                    <div class="summary-item">
+                      <span class="label">建议仓位</span>
+                      <span class="value">{{ record.analysis_result.final_decision.position_size || 'N/A' }}</span>
+                    </div>
+                  </div>
+                  
+                  <div class="summary-row">
+                    <div class="summary-item">
+                      <span class="label">进场区间</span>
+                      <span class="value">{{ record.analysis_result.final_decision.entry_range || 'N/A' }}</span>
+                    </div>
+                    <div class="summary-item">
+                      <span class="label">止盈位</span>
+                      <span class="value">{{ formatCurrency(record.analysis_result.final_decision.take_profit) }}</span>
+                    </div>
+                    <div class="summary-item">
+                      <span class="label">止损位</span>
+                      <span class="value">{{ formatCurrency(record.analysis_result.final_decision.stop_loss) }}</span>
+                    </div>
+                  </div>
+                  
+                  <div class="operation-advice">
+                    <p class="label">操作建议</p>
+                    <p class="content">{{ record.analysis_result.final_decision.operation_advice || 'N/A' }}</p>
+                  </div>
+                  
+                  <div class="risk-warning" v-if="record.analysis_result.final_decision.risk_warning">
+                    <p class="label">风险提示</p>
+                    <p class="content warning">{{ record.analysis_result.final_decision.risk_warning }}</p>
+                  </div>
+                </div>
               </el-card>
             </el-timeline-item>
           </el-timeline>
@@ -430,11 +473,112 @@
         </el-tab-pane>
       </el-tabs>
     </el-card>
+
+  <!-- 分析详情对话框 -->
+  <el-dialog
+    :visible.sync="detailDialogVisible"
+    :title="currentDetailRecord ? `${currentDetailRecord.stock_name} (${currentDetailRecord.stock_code}) 分析详情` : '分析详情'"
+    width="80%"
+    top="5vh"
+    :before-close="closeDetailDialog"
+  >
+    <div v-if="currentDetailRecord" class="detail-dialog-content">
+      <!-- 基本信息 -->
+      <el-card shadow="never" class="detail-section">
+        <div class="section-header">
+          <h3>📊 投资决策</h3>
+        </div>
+        <div class="decision-grid" v-if="currentDetailRecord.analysis_result && currentDetailRecord.analysis_result.final_decision">
+          <div class="decision-item">
+            <p class="label">评级</p>
+            <el-tag :type="getRatingType(currentDetailRecord.analysis_result.final_decision.rating)">
+              {{ currentDetailRecord.analysis_result.final_decision.rating }}
+            </el-tag>
+          </div>
+          <div class="decision-item">
+            <p class="label">信心度</p>
+            <p class="value">{{ formatConfidence(currentDetailRecord.analysis_result.final_decision.confidence_level) }}</p>
+          </div>
+          <div class="decision-item">
+            <p class="label">目标价</p>
+            <p class="value">{{ formatCurrency(currentDetailRecord.analysis_result.final_decision.target_price) }}</p>
+          </div>
+          <div class="decision-item">
+            <p class="label">持仓周期</p>
+            <p class="value">{{ currentDetailRecord.analysis_result.final_decision.holding_period || 'N/A' }}</p>
+          </div>
+          <div class="decision-item">
+            <p class="label">建议仓位</p>
+            <p class="value">{{ currentDetailRecord.analysis_result.final_decision.position_size || 'N/A' }}</p>
+          </div>
+          <div class="decision-item">
+            <p class="label">进场区间</p>
+            <p class="value">{{ currentDetailRecord.analysis_result.final_decision.entry_range || 'N/A' }}</p>
+          </div>
+          <div class="decision-item">
+            <p class="label">止盈位</p>
+            <p class="value">{{ formatCurrency(currentDetailRecord.analysis_result.final_decision.take_profit) }}</p>
+          </div>
+          <div class="decision-item">
+            <p class="label">止损位</p>
+            <p class="value">{{ formatCurrency(currentDetailRecord.analysis_result.final_decision.stop_loss) }}</p>
+          </div>
+        </div>
+        
+        <div class="decision-text" v-if="currentDetailRecord.analysis_result && currentDetailRecord.analysis_result.final_decision">
+          <div class="text-item">
+            <p class="label">操作建议</p>
+            <p class="content">{{ currentDetailRecord.analysis_result.final_decision.operation_advice || 'N/A' }}</p>
+          </div>
+          <div class="text-item" v-if="currentDetailRecord.analysis_result.final_decision.risk_warning">
+            <p class="label">风险提示</p>
+            <p class="content warning">{{ currentDetailRecord.analysis_result.final_decision.risk_warning }}</p>
+          </div>
+        </div>
+      </el-card>
+      
+      <!-- 分析师报告 -->
+      <el-card shadow="never" class="detail-section" v-if="currentDetailRecord.analysis_result && currentDetailRecord.analysis_result.agents_results">
+        <div class="section-header">
+          <h3>🤖 AI 分析师团队报告</h3>
+        </div>
+        <el-tabs class="agent-tabs">
+          <el-tab-pane label="🤝 团队讨论" v-if="currentDetailRecord.analysis_result && currentDetailRecord.analysis_result.discussion_result">
+            <div class="discussion-content">
+              <div class="markdown-content" v-html="renderMarkdown(currentDetailRecord.analysis_result.discussion_result)"></div>
+            </div>
+          </el-tab-pane>
+          <el-tab-pane
+            v-for="(agent, key) in currentDetailRecord.analysis_result.agents_results"
+            :key="key"
+            :label="agent.agent_name"
+          >
+            <div class="agent-detail-card">
+              <div class="agent-header">
+                <p class="role">{{ agent.agent_role }}</p>
+                <p class="focus">关注领域：{{ agent.focus_areas ? agent.focus_areas.join('、') : 'N/A' }}</p>
+                <p class="timestamp">分析时间：{{ agent.timestamp || 'N/A' }}</p>
+              </div>
+              <div class="agent-content">
+                <div class="markdown-content" v-html="renderMarkdown(agent.analysis)"></div>
+              </div>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
+      </el-card>
+    </div>
+    
+    <span slot="footer" class="dialog-footer">
+      <el-button @click="closeDetailDialog">关闭</el-button>
+      <el-button type="primary" @click="exportDetailReport">导出报告</el-button>
+    </span>
+  </el-dialog>
   </div>
 </template>
 
 <script>
 import dayjs from 'dayjs'
+import { marked } from 'marked'
 import {
   analyzeStock,
   batchAnalyzeStock,
@@ -442,126 +586,21 @@ import {
   generateStockPDF
 } from '@/api/stock'
 
+// 配置 marked 选项
+marked.setOptions({
+  breaks: true, // 支持 GitHub 风格的换行
+  gfm: true, // 启用 GitHub 风格的 Markdown
+  headerIds: false,
+  mangle: false
+})
+
 const MODEL_OPTIONS = [
-  { value: 'deepseek-chat', label: 'DeepSeek V3 Chat（默认）' },
+  { value: 'deepseek-chat', label: 'DeepSeek V3 Chat' },
   { value: 'deepseek-reasoner', label: 'DeepSeek-R1 Reasoner' },
   { value: 'openai-gpt4o', label: 'OpenAI GPT-4o' }
 ]
 
-const createFallbackAnalysis = () => {
-  const timestamp = dayjs().format('YYYY-MM-DD HH:mm:ss')
-  return {
-    success: true,
-    timestamp,
-    stock_info: {
-      symbol: '600519',
-      name: '贵州茅台',
-      current_price: 1688.23,
-      change_percent: 1.25,
-      pe_ratio: 27.8,
-      pb_ratio: 7.6,
-      market_cap: 2120000000000
-    },
-    indicators: {
-      rsi: 56.3,
-      ma20: 1668.5,
-      volume_ratio: 1.12,
-      macd: 2.86
-    },
-    agents_results: {
-      technical: {
-        agent_name: '📊 技术分析师',
-        agent_role: '趋势与结构研判',
-        focus_areas: ['均线', '成交量', '形态'],
-        timestamp,
-        analysis:
-          '股价站稳 MA20 上方，量能温和放大，短线有望延续震荡上行。若回踩 1650-1660 区域仍可关注。'
-      },
-      fundamental: {
-        agent_name: '💼 基本面分析师',
-        agent_role: '财务与估值分析',
-        focus_areas: ['营收利润', '估值水平'],
-        timestamp,
-        analysis:
-          '高端白酒需求稳健，Q3 毛利率 91%，ROE 33%，当前估值位于近三年 45% 分位，具备中长期配置价值。'
-      },
-      fund_flow: {
-        agent_name: '💰 资金面分析师',
-        agent_role: '主力资金跟踪',
-        focus_areas: ['北向资金', '主力净流入'],
-        timestamp,
-        analysis:
-          '北向资金近三日净买入 8.4 亿，机构席位呈现低位增持，短线资金偏向高确定性标的。'
-      },
-      risk: {
-        agent_name: '⚠️ 风险管理师',
-        agent_role: '风险识别',
-        focus_areas: ['政策', '波动率'],
-        timestamp,
-        analysis:
-          '白酒板块受消费预期影响较大，需关注宏观数据与渠道库存。若跌破 1600 将破坏中期结构。'
-      }
-    },
-    discussion_result:
-      '团队一致认为贵州茅台基本面坚实，当前处于震荡抬升阶段。建议保持中等仓位，以 1650 为回撤跟踪点。',
-    final_decision: {
-      rating: '买入',
-      confidence_level: 8,
-      target_price: '1850 元',
-      position_size: '30%-40%',
-      operation_advice: '震荡市中建议分批建仓，保持耐心等待估值回归；若出现放量突破可适度加仓。',
-      entry_range: '1650-1680 元',
-      take_profit: '1850 元',
-      stop_loss: '1580 元',
-      holding_period: '1-3 个月',
-      risk_warning: '关注消费需求波动及政策对高端白酒的潜在影响。'
-    }
-  }
-}
 
-const createFallbackBatch = () => [
-  {
-    symbol: '600519',
-    name: '贵州茅台',
-    rating: '买入',
-    confidence_level: 8,
-    target_price: '1850',
-    entry_range: '1650-1680',
-    operation_advice: '高确定性标的，震荡偏多。'
-  },
-  {
-    symbol: '300750',
-    name: '宁德时代',
-    rating: '持有',
-    confidence_level: 6,
-    target_price: '240',
-    entry_range: '205-215',
-    operation_advice: '关注储能业务放量，等待放量突破再行加仓。'
-  }
-]
-
-const createFallbackHistory = () => [
-  {
-    id: 401,
-    symbol: '600036',
-    stock_name: '招商银行',
-    rating: '持有',
-    analysis_date: '2024-11-26 18:10',
-    period: '6mo',
-    confidence: 6.5,
-    summary: '息差企稳迹象出现，建议持有等待估值修复。'
-  },
-  {
-    id: 398,
-    symbol: 'AAPL',
-    stock_name: 'Apple Inc.',
-    rating: '买入',
-    analysis_date: '2024-11-24 10:30',
-    period: '1y',
-    confidence: 8.2,
-    summary: '服务与可穿戴驱动营收创新高，继续维持买入评级。'
-  }
-]
 
 export default {
   name: 'StockIndex',
@@ -593,7 +632,9 @@ export default {
       batchResults: [],
       historyList: [],
       historyLoading: false,
-      historySearch: ''
+      historySearch: '',
+      detailDialogVisible: false,
+      currentDetailRecord: null,
     }
   },
   computed: {
@@ -634,9 +675,27 @@ export default {
     }
   },
   created() {
+    console.log('StockIndex component created, calling loadHistory...')
     this.loadHistory()
   },
+  mounted() {
+    console.log('StockIndex component mounted')
+    // 如果 created 中没有成功调用，在 mounted 中再次尝试
+    if (this.historyList.length === 0 && !this.historyLoading) {
+      console.log('History list is empty, calling loadHistory from mounted...')
+      this.loadHistory()
+    }
+  },
   methods: {
+    renderMarkdown(text) {
+      if (!text) return ''
+      try {
+        return marked(text)
+      } catch (error) {
+        console.error('Markdown 渲染失败:', error)
+        return text
+      }
+    },
     refreshAnalysis() {
       this.analysisResult = null
       this.$message.success('缓存已清除，请重新发起分析')
@@ -703,7 +762,7 @@ export default {
       this.analysisLoading = true
       try {
         const payload = {
-          symbol: this.singleForm.symbol,
+          stock_code: this.singleForm.symbol,
           period: this.singleForm.period,
           model: this.selectedModel,
           analysts: this.analysts
@@ -713,14 +772,15 @@ export default {
         if (data.success) {
           this.analysisResult = data
           this.analysisMode = 'single'
-          this.$message.success('单股分析完成')
+          this.$message.success('分析完成')
         } else {
           throw new Error(data.error || '分析失败')
         }
       } catch (error) {
-        console.warn('analyzeStock fallback', error)
-        this.analysisResult = createFallbackAnalysis()
-        this.$message.info('接口未连通，展示示例分析结果')
+        console.error('股票分析失败:', error)
+        this.analysisResult = null
+        const errorMsg = error?.response?.data?.error || error?.message || '分析失败，请检查网络连接或稍后重试'
+        this.$message.error(errorMsg)
       } finally {
         this.analysisLoading = false
       }
@@ -744,25 +804,31 @@ export default {
           throw new Error(data.error || '批量分析失败')
         }
       } catch (error) {
-        console.warn('batchAnalyzeStock fallback', error)
-        this.batchResults = createFallbackBatch()
-        this.$message.info('批量接口未打通，展示示例结果')
+        console.error('批量分析失败:', error)
+        this.batchResults = []
+        const errorMsg = error?.response?.data?.error || error?.message || '批量分析失败，请检查网络连接或稍后重试'
+        this.$message.error(errorMsg)
       } finally {
         this.analysisLoading = false
       }
     },
     async loadHistory() {
+      console.log('loadHistory method called')
       this.historyLoading = true
       try {
+        console.log('Calling getStockHistory API...')
         const res = await getStockHistory()
+        console.log('getStockHistory response:', res)
         const list = Array.isArray(res && (res.items || res)) ? (res.items || res) : []
-        this.historyList = list.length ? list : createFallbackHistory()
+        this.historyList = list.length ? list : []
+        console.log('History list updated, count:', this.historyList.length)
       } catch (error) {
-        console.warn('getStockHistory fallback', error)
-        this.historyList = createFallbackHistory()
-        this.$message.info('历史记录接口未打通，展示示例')
+        console.error('获取历史记录失败:', error)
+        this.historyList = []
+        this.$message.warning('获取历史记录失败，请稍后重试')
       } finally {
         this.historyLoading = false
+        console.log('loadHistory completed')
       }
     },
     async exportReport(type) {
@@ -772,7 +838,7 @@ export default {
       }
       if (type === 'pdf') {
         try {
-          const blob = await generateStockPDF({ symbol: this.stockInfo.symbol })
+          const blob = await generateStockPDF({ stock_code: this.stockInfo.symbol })
           if (!blob) throw new Error('empty')
           const url = window.URL.createObjectURL(new Blob([blob]))
           const link = document.createElement('a')
@@ -788,9 +854,68 @@ export default {
       } else {
         this.$message.info('Markdown 导出将在后续版本开放')
       }
+    },
+
+    async exportDetailReport() {
+      if (!this.currentDetailRecord) {
+        this.$message.warning('请先完成一次分析')
+        return
+      }
+
+      try {
+        const blob = await generateStockPDF({ stock_code: this.currentDetailRecord.stock_code })
+        if (!blob) throw new Error('empty')
+        const url = window.URL.createObjectURL(new Blob([blob]))
+        const link = document.createElement('a')
+        link.href = url
+        link.setAttribute('download', `stock-report-${this.currentDetailRecord.stock_code}.pdf`)
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+      } catch (error) {
+        console.warn('generateStockPDF fallback', error)
+        this.$message.info('PDF 生成功能暂未开放')
+      }
+    },
+
+    formatDate(value) {
+      if (value instanceof Date) {
+        return dayjs(value).format('YYYY-MM-DD HH:mm')
+      }
+      
+      if (typeof value === 'string') {
+        return dayjs(value).format('YYYY-MM-DD HH:mm')
+      } 
+      return value
+    },
+    formatConfidence(value) {
+      if (value === null || value === undefined || value === '') return 'N/A'
+      return `${Number(value).toFixed(1)}/10`
+    },
+    getRatingType(rating) {
+      if (!rating) return 'info'
+      if (rating.includes('买')) return 'success'
+      if (rating.includes('卖')) return 'danger'
+      return 'warning'
+    },
+
+    viewDetail(record) {
+      this.currentDetailRecord = record
+      this.detailDialogVisible = true
+    },
+
+    closeDetailDialog() {
+      this.detailDialogVisible = false
+      this.currentDetailRecord = null
+    },
+
+    getAgentList(record) {
+      if (!record.analysis_result || !record.analysis_result.agents_results) return []
+      return Object.values(record.analysis_result.agents_results)
     }
   }
 }
+
 </script>
 
 <style lang="scss" scoped>
@@ -1087,16 +1212,80 @@ export default {
       justify-content: space-between;
       flex-wrap: wrap;
       gap: 12px;
-      margin-bottom: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eee;
+
+      .stock-info {
+        h4 {
+          margin: 0 0 8px 0;
+          font-size: 16px;
+          font-weight: 600;
+        }
+
+        .rating-section {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+
+          .confidence {
+            font-size: 12px;
+            color: #909399;
+          }
+        }
+      }
+
+      .action-buttons {
+        display: flex;
+        align-items: flex-start;
+      }
     }
 
-    .subtitle {
-      color: #606266;
-    }
+    .decision-summary {
+      .summary-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-bottom: 12px;
 
-    .tagline {
-      color: #909399;
-      font-size: 12px;
+        .summary-item {
+          flex: 1;
+          min-width: 120px;
+
+          .label {
+            font-size: 12px;
+            color: #909399;
+            margin: 0 0 4px 0;
+          }
+
+          .value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #303133;
+          }
+        }
+      }
+
+      .operation-advice, .risk-warning {
+        margin-top: 16px;
+
+        .label {
+          font-size: 12px;
+          color: #909399;
+          margin: 0 0 4px 0;
+        }
+
+        .content {
+          font-size: 13px;
+          line-height: 1.5;
+          color: #606266;
+          margin: 0;
+
+          &.warning {
+            color: #e6a23c;
+          }
+        }
+      }
     }
   }
 
@@ -1107,6 +1296,364 @@ export default {
 
   .inline-alert {
     margin-top: 12px;
+  }
+
+  // 鍘嗗彶璁板綍鍗＄墖鏍峰紡
+  .history-card {
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #eee;
+
+      .stock-info {
+        h4 {
+          margin: 0 0 8px 0;
+          font-size: 16px;
+          font-weight: 600;
+        }
+
+        .rating-section {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+
+          .confidence {
+            font-size: 12px;
+            color: #909399;
+          }
+        }
+      }
+
+      .action-buttons {
+        display: flex;
+        align-items: flex-start;
+      }
+    }
+
+    .decision-summary {
+      .summary-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        margin-bottom: 12px;
+
+        .summary-item {
+          flex: 1;
+          min-width: 120px;
+
+          .label {
+            font-size: 12px;
+            color: #909399;
+            margin: 0 0 4px 0;
+          }
+
+          .value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #303133;
+          }
+        }
+      }
+
+      .operation-advice, .risk-warning {
+        margin-top: 16px;
+
+        .label {
+          font-size: 12px;
+          color: #909399;
+          margin: 0 0 4px 0;
+        }
+
+        .content {
+          font-size: 13px;
+          line-height: 1.5;
+          color: #606266;
+          margin: 0;
+
+          &.warning {
+            color: #e6a23c;
+          }
+        }
+      }
+    }
+  }
+
+  // 璇︽儏瀵硅瘽妗嗘牱寮?
+  .detail-dialog-content {
+    .detail-section {
+      margin-bottom: 20px;
+
+      .section-header {
+        margin-bottom: 16px;
+
+        h3 {
+          margin: 0;
+          font-size: 18px;
+          font-weight: 600;
+          color: #303133;
+        }
+      }
+
+      .decision-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+        gap: 16px;
+        margin-bottom: 20px;
+
+        .decision-item {
+          .label {
+            font-size: 12px;
+            color: #909399;
+            margin: 0 0 4px 0;
+          }
+
+          .value {
+            font-size: 14px;
+            font-weight: 600;
+            color: #303133;
+          }
+        }
+      }
+
+      .decision-text {
+        .text-item {
+          margin-bottom: 16px;
+
+          &:last-child {
+            margin-bottom: 0;
+          }
+
+          .label {
+            font-size: 13px;
+            color: #909399;
+            margin: 0 0 6px 0;
+            font-weight: 500;
+          }
+
+          .content {
+            font-size: 14px;
+            line-height: 1.6;
+            color: #606266;
+            margin: 0;
+
+            &.warning {
+              color: #e6a23c;
+            }
+          }
+        }
+      }
+
+      .agent-detail-card {
+        .agent-header {
+          background: #f5f7fa;
+          padding: 12px 16px;
+          border-radius: 8px;
+          margin-bottom: 16px;
+
+          .role {
+            font-size: 14px;
+            font-weight: 600;
+            color: #303133;
+            margin: 0 0 6px 0;
+          }
+
+          .focus {
+            font-size: 13px;
+            color: #606266;
+            margin: 0 0 6px 0;
+          }
+
+          .timestamp {
+            font-size: 12px;
+            color: #909399;
+            margin: 0;
+          }
+        }
+
+        .agent-content {
+          .analysis-text {
+            font-size: 14px;
+            line-height: 1.7;
+            color: #606266;
+            margin: 0;
+            white-space: pre-wrap;
+          }
+        }
+      }
+
+      .discussion-content {
+        p {
+          font-size: 14px;
+          line-height: 1.7;
+          color: #606266;
+          margin: 0;
+          white-space: pre-wrap;
+        }
+      }
+    }
+
+    .agent-tabs {
+      ::v-deep .el-tabs__header {
+        margin-bottom: 20px;
+      }
+    }
+  }
+
+  .dialog-footer {
+    text-align: right;
+  }
+
+  // Markdown 内容样式
+  .markdown-content {
+    line-height: 1.8;
+    color: #303133;
+    word-wrap: break-word;
+
+    ::v-deep {
+      h1, h2, h3, h4, h5, h6 {
+        margin: 16px 0 8px 0;
+        font-weight: 600;
+        line-height: 1.4;
+        color: #303133;
+
+        &:first-child {
+          margin-top: 0;
+        }
+      }
+
+      h1 {
+        font-size: 24px;
+        border-bottom: 1px solid #eee;
+        padding-bottom: 8px;
+      }
+
+      h2 {
+        font-size: 20px;
+      }
+
+      h3 {
+        font-size: 18px;
+      }
+
+      h4 {
+        font-size: 16px;
+      }
+
+      p {
+        margin: 8px 0;
+        line-height: 1.8;
+      }
+
+      ul, ol {
+        padding-left: 24px;
+        margin: 8px 0;
+
+        li {
+          margin: 4px 0;
+          line-height: 1.8;
+        }
+      }
+
+      blockquote {
+        margin: 12px 0;
+        padding: 8px 16px;
+        border-left: 4px solid #409eff;
+        background: #ecf5ff;
+        color: #606266;
+
+        p {
+          margin: 0;
+        }
+      }
+
+      code {
+        padding: 2px 6px;
+        margin: 0 2px;
+        background: #f5f7fa;
+        border: 1px solid #e4e7ed;
+        border-radius: 3px;
+        font-family: 'Courier New', Courier, monospace;
+        font-size: 0.9em;
+        color: #e83e8c;
+      }
+
+      pre {
+        margin: 12px 0;
+        padding: 12px;
+        background: #f5f7fa;
+        border: 1px solid #e4e7ed;
+        border-radius: 4px;
+        overflow-x: auto;
+
+        code {
+          padding: 0;
+          margin: 0;
+          background: transparent;
+          border: none;
+          color: #303133;
+        }
+      }
+
+      table {
+        width: 100%;
+        margin: 12px 0;
+        border-collapse: collapse;
+        border: 1px solid #e4e7ed;
+
+        th, td {
+          padding: 8px 12px;
+          border: 1px solid #e4e7ed;
+          text-align: left;
+        }
+
+        th {
+          background: #f5f7fa;
+          font-weight: 600;
+        }
+
+        tr:nth-child(even) {
+          background: #fafafa;
+        }
+      }
+
+      strong {
+        font-weight: 600;
+        color: #303133;
+      }
+
+      em {
+        font-style: italic;
+      }
+
+      hr {
+        margin: 16px 0;
+        border: none;
+        border-top: 1px solid #e4e7ed;
+      }
+
+      a {
+        color: #409eff;
+        text-decoration: none;
+
+        &:hover {
+          text-decoration: underline;
+        }
+      }
+    }
+  }
+
+  .discussion-card {
+    background: #fff;
+    border-radius: 10px;
+    padding: 16px;
+
+    .markdown-content {
+      min-height: 100px;
+    }
   }
 }
 </style>

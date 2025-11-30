@@ -21,8 +21,6 @@ MINIQMT_CONFIG = {
     'account_id': os.getenv("MINIQMT_ACCOUNT_ID", ""),
     'userdata_path': os.getenv("MINIQMT_USERDATA_PATH", "E:\\zhongjin_qmt\\userdata_mini"),
     'account_type': os.getenv("MINIQMT_ACCOUNT_TYPE", "STOCK"),
-    'host': os.getenv("MINIQMT_HOST", "127.0.0.1"),
-    'port': int(os.getenv("MINIQMT_PORT", "58610")),
 }
 
 # MySQL行情数据库配置

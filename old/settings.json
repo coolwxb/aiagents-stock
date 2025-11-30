@@ -1,0 +1,15 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "fdb787fbbe6349ecad8c9bdcd18f09d3.b6mS0IAcvrohD9sV",
+    "API_TIMEOUT_MS": "3000000",
+    "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+    "MCP_TOOL_TIMEOUT": "30000",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-4.5-air",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-4.6",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-4.6"
+  },
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "alwaysThinkingEnabled": false
+}

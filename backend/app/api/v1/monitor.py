@@ -3,6 +3,8 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from app.api.response import success_response
 from app.dependencies import get_database
 from app.services.monitor_service import MonitorService
 
@@ -15,7 +17,7 @@ async def get_tasks(db: Session = Depends(get_database)):
     service = MonitorService(db)
     try:
         result = await service.get_tasks()
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -29,7 +31,7 @@ async def create_task(
     service = MonitorService(db)
     try:
         result = await service.create_task(task_data)
-        return result
+        return success_response(result, msg="任务创建成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -44,7 +46,7 @@ async def update_task(
     service = MonitorService(db)
     try:
         result = await service.update_task(task_id, task_data)
-        return result
+        return success_response(result, msg="任务更新成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -58,7 +60,7 @@ async def delete_task(
     service = MonitorService(db)
     try:
         result = await service.delete_task(task_id)
-        return result
+        return success_response(result, msg="任务删除成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -72,7 +74,7 @@ async def start_task(
     service = MonitorService(db)
     try:
         result = await service.start_task(task_id)
-        return result
+        return success_response(result, msg="任务已启动")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -86,7 +88,7 @@ async def stop_task(
     service = MonitorService(db)
     try:
         result = await service.stop_task(task_id)
-        return result
+        return success_response(result, msg="任务已停止")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -100,7 +102,7 @@ async def get_task_status(
     service = MonitorService(db)
     try:
         result = await service.get_task_status(task_id)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -111,7 +113,7 @@ async def get_positions(db: Session = Depends(get_database)):
     service = MonitorService(db)
     try:
         result = await service.get_positions()
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -126,7 +128,7 @@ async def get_history(
     service = MonitorService(db)
     try:
         result = await service.get_history(page, page_size)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

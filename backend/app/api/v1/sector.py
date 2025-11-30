@@ -3,6 +3,8 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from app.api.response import success_response
 from app.dependencies import get_database
 from app.services.sector_service import SectorService
 
@@ -18,7 +20,7 @@ async def analyze_sector(
     service = SectorService(db)
     try:
         result = await service.analyze_sector(model)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -29,7 +31,7 @@ async def get_schedule(db: Session = Depends(get_database)):
     service = SectorService(db)
     try:
         result = await service.get_schedule()
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -44,7 +46,7 @@ async def set_schedule(
     service = SectorService(db)
     try:
         result = await service.set_schedule(schedule_time, enabled)
-        return result
+        return success_response(result, msg="定时任务已更新")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -58,7 +60,7 @@ async def delete_schedule(
     service = SectorService(db)
     try:
         result = await service.delete_schedule(schedule_id)
-        return result
+        return success_response(result, msg="定时任务已删除")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -69,7 +71,7 @@ async def trigger_analysis(db: Session = Depends(get_database)):
     service = SectorService(db)
     try:
         result = await service.trigger_analysis()
-        return result
+        return success_response(result, msg="分析任务已触发")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -84,7 +86,7 @@ async def get_history(
     service = SectorService(db)
     try:
         result = await service.get_history(page, page_size)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -98,7 +100,7 @@ async def generate_pdf(
     service = SectorService(db)
     try:
         result = await service.generate_pdf(report_id)
-        return result
+        return success_response(result, msg="PDF生成成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -6,14 +6,13 @@
 import os
 import pandas as pd
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 
-# 加载环境变量
-load_dotenv()
+
+
 
 
 class DataSourceManager:
-    """数据源管理器 - 实现akshare与tushare自动切换"""
+    """数据源管理器 - 实现mysql、akshare和tushare自动切换"""
     
     def __init__(self):
         self.tushare_token = os.getenv('TUSHARE_TOKEN', '')
@@ -56,7 +55,7 @@ class DataSourceManager:
     
     def get_stock_hist_data(self, symbol, start_date=None, end_date=None, adjust='qfq'):
         """
-        获取股票历史数据（优先akshare，失败时使用tushare）
+        获取股票历史数据（优先mysql，失败时使用akshare，再失败时使用tushare）
         
         Args:
             symbol: 股票代码（6位数字）

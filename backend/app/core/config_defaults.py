@@ -33,15 +33,16 @@ CONFIG_DEFAULTS = {
         "required": False,
         "type": "text",
     },
-    "MINIQMT_HOST": {
-        "value": "127.0.0.1",
-        "description": "MiniQMT服务器地址",
+    "MINIQMT_ACCOUNT_TYPE": {
+        "value": "STOCK",
+        "description": "MiniQMT账户类型（STOCK/CREDIT）",
         "required": False,
-        "type": "text",
+        "type": "select",
+        "options": ["STOCK", "CREDIT"],
     },
-    "MINIQMT_PORT": {
-        "value": "58610",
-        "description": "MiniQMT服务器端口",
+    "MINIQMT_USERDATA_PATH": {
+        "value": "E:\\zhongjin_qmt\\userdata_mini",
+        "description": "MiniQMT用户数据目录",
         "required": False,
         "type": "text",
     },

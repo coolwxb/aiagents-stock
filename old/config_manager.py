@@ -44,15 +44,16 @@ class ConfigManager:
                 "required": False,
                 "type": "text"
             },
-            "MINIQMT_HOST": {
-                "value": "127.0.0.1",
-                "description": "MiniQMT服务器地址",
+            "MINIQMT_ACCOUNT_TYPE": {
+                "value": "STOCK",
+                "description": "MiniQMT账户类型（STOCK/CREDIT）",
                 "required": False,
-                "type": "text"
+                "type": "select",
+                "options": ["STOCK", "CREDIT"]
             },
-            "MINIQMT_PORT": {
-                "value": "58610",
-                "description": "MiniQMT服务器端口",
+            "MINIQMT_USERDATA_PATH": {
+                "value": "E:\\zhongjin_qmt\\userdata_mini",
+                "description": "MiniQMT用户数据目录",
                 "required": False,
                 "type": "text"
             },
@@ -225,8 +226,8 @@ class ConfigManager:
             lines.append("# ========== MiniQMT量化交易配置（可选）==========")
             lines.append(f'MINIQMT_ENABLED="{config.get("MINIQMT_ENABLED", "false")}"')
             lines.append(f'MINIQMT_ACCOUNT_ID="{config.get("MINIQMT_ACCOUNT_ID", "")}"')
-            lines.append(f'MINIQMT_HOST="{config.get("MINIQMT_HOST", "127.0.0.1")}"')
-            lines.append(f'MINIQMT_PORT="{config.get("MINIQMT_PORT", "58610")}"')
+            lines.append(f'MINIQMT_ACCOUNT_TYPE="{config.get("MINIQMT_ACCOUNT_TYPE", "STOCK")}"')
+            lines.append(f'MINIQMT_USERDATA_PATH="{config.get("MINIQMT_USERDATA_PATH", "E:\\\\zhongjin_qmt\\\\userdata_mini")}"')
             lines.append("")
             
             # 邮件通知配置

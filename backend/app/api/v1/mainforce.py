@@ -3,42 +3,43 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from app.api.response import success_response
 from app.dependencies import get_database
 from app.services.mainforce_service import MainforceService
+from app.schemas.stock import (
+    MainforceAnalyzeRequest,
+    MainforceAnalyzeResponse,
+    MainforceBatchAnalyzeRequest,
+    MainforceBatchAnalyzeResponse
+)
 
 router = APIRouter()
 
 
-@router.post("/analyze")
+@router.post("/analyze", response_model=MainforceAnalyzeResponse)
 async def analyze_mainforce(
-    start_date: str,
-    max_market_cap: float = 5000,
-    min_market_cap: float = 50,
-    max_change_pct: float = 50,
-    model: str = "deepseek-chat",
+    request: MainforceAnalyzeRequest,
     db: Session = Depends(get_database)
 ):
     """主力选股分析"""
     service = MainforceService(db)
     try:
-        result = await service.analyze_mainforce(
-            start_date, max_market_cap, min_market_cap, max_change_pct, model
-        )
+        result = await service.analyze_mainforce(request)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/batch-analyze")
+@router.post("/batch-analyze", response_model=MainforceBatchAnalyzeResponse)
 async def batch_analyze(
-    count: int = 10,
-    model: str = "deepseek-chat",
+    request: MainforceBatchAnalyzeRequest,
     db: Session = Depends(get_database)
 ):
     """批量分析"""
     service = MainforceService(db)
     try:
-        result = await service.batch_analyze(count, model)
+        result = await service.batch_analyze(request)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -54,7 +55,7 @@ async def get_history(
     service = MainforceService(db)
     try:
         result = await service.get_history(page, page_size)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

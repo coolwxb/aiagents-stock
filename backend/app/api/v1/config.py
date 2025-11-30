@@ -3,6 +3,8 @@
 """
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from app.api.response import success_response
 from app.dependencies import get_database
 from app.services.config_service import ConfigService
 
@@ -15,7 +17,7 @@ async def get_config(db: Session = Depends(get_database)):
     service = ConfigService(db)
     try:
         result = await service.get_config()
-        return result
+        return success_response(result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -31,7 +33,7 @@ async def update_config(
     service = ConfigService(db)
     try:
         result = await service.update_config(config_data)
-        return result
+        return success_response(result, msg="配置更新成功")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -47,7 +49,7 @@ async def validate_config(
     service = ConfigService(db)
     try:
         result = await service.validate_config(config_data)
-        return result
+        return success_response(result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -63,7 +65,7 @@ async def test_config_get(
     service = ConfigService(db)
     try:
         result = await service.test_config(config_type)
-        return result
+        return success_response(result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -80,7 +82,7 @@ async def test_config_post(
     try:
         config_type = payload.get("config_type")
         result = await service.test_config(config_type)
-        return result
+        return success_response(result)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:

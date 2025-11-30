@@ -32,11 +32,11 @@ MINIQMT_ENABLED=false
 # MiniQMT账户ID
 MINIQMT_ACCOUNT_ID=
 
-# MiniQMT服务器地址
-MINIQMT_HOST=127.0.0.1
+# MiniQMT账户类型（STOCK：普通账户，CREDIT：信用账户）
+MINIQMT_ACCOUNT_TYPE=STOCK
 
-# MiniQMT服务器端口
-MINIQMT_PORT=58610
+# MiniQMT用户数据目录（通常位于MiniQMT安装目录下的userdata_mini）
+MINIQMT_USERDATA_PATH=E:\\zhongjin_qmt\\userdata_mini
 
 
 # ========== 邮件通知配置（可选）==========

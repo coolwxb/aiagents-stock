@@ -3,6 +3,8 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from app.api.response import success_response
 from app.dependencies import get_database
 from app.services.notification_service import NotificationService
 
@@ -18,7 +20,7 @@ async def send_email(
     service = NotificationService(db)
     try:
         result = await service.send_email(email_data)
-        return result
+        return success_response(result, msg="邮件发送成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -32,7 +34,7 @@ async def send_webhook(
     service = NotificationService(db)
     try:
         result = await service.send_webhook(webhook_data)
-        return result
+        return success_response(result, msg="Webhook 发送成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -47,7 +49,7 @@ async def get_history(
     service = NotificationService(db)
     try:
         result = await service.get_history(page, page_size)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -61,7 +63,7 @@ async def test_notification(
     service = NotificationService(db)
     try:
         result = await service.test_notification(notification_type)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

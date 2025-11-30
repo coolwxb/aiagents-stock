@@ -1,4 +1,4 @@
-from deepseek_client import DeepSeekClient
+from .deepseek_client import DeepSeekClient
 from typing import Dict, Any
 import time
 

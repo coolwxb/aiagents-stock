@@ -68,17 +68,17 @@ service.interceptors.response.use(
         })
       }
       return Promise.reject(new Error(res.message || 'Error'))
-    } else {
-      // Return data field from response
-      // For mock data (code: 20000): return res.data
-      // For backend API (code: 200): return res.data
-      // If data is undefined, return the whole response
-      if (res.data !== undefined) {
-        return res.data
-      }
-      // Fallback: return the whole response (for compatibility)
-      return res
     }
+
+    // Return data field from response
+    // For mock data (code: 20000): return res.data
+    // For backend API (code: 200): return res.data
+    // If data is undefined, return the whole response
+    if (res.data !== undefined) {
+      return res.data
+    }
+    // Fallback: return the whole response (for compatibility)
+    return res
   },
   error => {
     console.log('err' + error) // for debug

@@ -3,6 +3,8 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from app.api.response import success_response
 from app.dependencies import get_database
 from app.services.longhubang_service import LonghubangService
 
@@ -20,7 +22,7 @@ async def analyze_longhubang(
     service = LonghubangService(db)
     try:
         result = await service.analyze_longhubang(date, days, model)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -35,7 +37,7 @@ async def batch_analyze(
     service = LonghubangService(db)
     try:
         result = await service.batch_analyze(stock_codes, model)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -49,7 +51,7 @@ async def get_scoring(
     service = LonghubangService(db)
     try:
         result = await service.get_scoring(report_id)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -64,7 +66,7 @@ async def get_history(
     service = LonghubangService(db)
     try:
         result = await service.get_history(page, page_size)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -78,7 +80,7 @@ async def generate_pdf(
     service = LonghubangService(db)
     try:
         result = await service.generate_pdf(report_id)
-        return result
+        return success_response(result, msg="PDF生成成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

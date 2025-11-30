@@ -516,8 +516,8 @@ WEBHOOK_KEYWORD=股票  # 钉钉自定义关键词，飞书可留空
 # MiniQMT量化交易配置（可选）
 MINIQMT_ENABLED=false
 MINIQMT_ACCOUNT_ID=your_account_id
-MINIQMT_HOST=127.0.0.1
-MINIQMT_PORT=58610
+MINIQMT_ACCOUNT_TYPE=STOCK
+MINIQMT_USERDATA_PATH=E:\\zhongjin_qmt\\userdata_mini
 ```
 
 #### 方法二：设置系统环境变量

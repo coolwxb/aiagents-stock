@@ -1,9 +1,12 @@
 """
 股票分析API
 """
+from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from typing import List
+
+from app.api.response import success_response
 from app.dependencies import get_database
 from app.schemas.stock import StockAnalyzeRequest, StockAnalyzeResponse, BatchAnalyzeRequest
 from app.services.stock_service import StockService
@@ -20,7 +23,7 @@ async def analyze_stock(
     service = StockService(db)
     try:
         result = await service.analyze_stock(request)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -34,7 +37,7 @@ async def batch_analyze(
     service = StockService(db)
     try:
         result = await service.batch_analyze(request)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -50,7 +53,7 @@ async def get_history(
     service = StockService(db)
     try:
         result = await service.get_history(stock_code, page, page_size)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -64,7 +67,7 @@ async def get_stock_info(
     service = StockService(db)
     try:
         result = await service.get_stock_info(stock_code)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -78,7 +81,7 @@ async def generate_pdf(
     service = StockService(db)
     try:
         result = await service.generate_pdf(analysis_id)
-        return result
+        return success_response(result, msg="PDF生成成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

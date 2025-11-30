@@ -21,9 +21,10 @@ TDX_BASE_URL=http://192.168.1.222:8181
 MINIQMT_ENABLED=false
 # MiniQMT账户ID
 MINIQMT_ACCOUNT_ID=your_account_id_here
-# MiniQMT服务地址
-MINIQMT_HOST=127.0.0.1
-MINIQMT_PORT=58610
+# MiniQMT账户类型（STOCK=普通账户，CREDIT=信用账户）
+MINIQMT_ACCOUNT_TYPE=STOCK
+# MiniQMT用户数据目录
+MINIQMT_USERDATA_PATH=E:\\zhongjin_qmt\\userdata_mini
 
 # 邮件通知配置
 EMAIL_ENABLED=false

@@ -3,6 +3,8 @@
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
+from app.api.response import success_response
 from app.dependencies import get_database
 from app.services.trading_service import TradingService
 
@@ -15,7 +17,7 @@ async def get_trading_status(db: Session = Depends(get_database)):
     service = TradingService(db)
     try:
         result = await service.get_status()
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -29,7 +31,7 @@ async def place_order(
     service = TradingService(db)
     try:
         result = await service.place_order(order_data)
-        return result
+        return success_response(result, msg="下单成功")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -44,7 +46,7 @@ async def get_orders(
     service = TradingService(db)
     try:
         result = await service.get_orders(page, page_size)
-        return result
+        return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

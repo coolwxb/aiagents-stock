@@ -2158,28 +2158,35 @@ def display_config_manager():
             )
             st.session_state.temp_config["MINIQMT_ACCOUNT_ID"] = new_account_id
 
-            host_info = config_info["MINIQMT_HOST"]
-            current_host = st.session_state.temp_config.get("MINIQMT_HOST", "")
+            account_type_info = config_info["MINIQMT_ACCOUNT_TYPE"]
+            current_account_type = st.session_state.temp_config.get("MINIQMT_ACCOUNT_TYPE", "STOCK") or "STOCK"
+            account_type_options = account_type_info.get("options", ["STOCK", "CREDIT"])
+            if current_account_type not in account_type_options:
+                account_type_options = account_type_options + [current_account_type]
 
-            new_host = st.text_input(
-                f"🖥️ {host_info['description']}",
-                value=current_host,
+            new_account_type = st.selectbox(
+                f"📂 {account_type_info['description']}",
+                options=account_type_options,
+                index=account_type_options.index(current_account_type),
                 disabled=not new_enabled,
-                key="input_miniqmt_host"
+                key="select_miniqmt_account_type"
             )
-            st.session_state.temp_config["MINIQMT_HOST"] = new_host
+            st.session_state.temp_config["MINIQMT_ACCOUNT_TYPE"] = new_account_type
 
         with col2:
-            port_info = config_info["MINIQMT_PORT"]
-            current_port = st.session_state.temp_config.get("MINIQMT_PORT", "")
-
-            new_port = st.text_input(
-                f"🔌 {port_info['description']}",
-                value=current_port,
-                disabled=not new_enabled,
-                key="input_miniqmt_port"
+            userdata_info = config_info["MINIQMT_USERDATA_PATH"]
+            current_userdata_path = st.session_state.temp_config.get(
+                "MINIQMT_USERDATA_PATH",
+                "E:\\zhongjin_qmt\\userdata_mini"
             )
-            st.session_state.temp_config["MINIQMT_PORT"] = new_port
+
+            new_userdata_path = st.text_input(
+                f"📁 {userdata_info['description']}",
+                value=current_userdata_path,
+                disabled=not new_enabled,
+                key="input_miniqmt_userdata_path"
+            )
+            st.session_state.temp_config["MINIQMT_USERDATA_PATH"] = new_userdata_path
 
         if new_enabled:
             st.success("✅ MiniQMT已启用")
