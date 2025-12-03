@@ -26,6 +26,7 @@ from app.agents.ai_agents import StockAnalysisAgents  # type: ignore  # noqa: E4
 from app.utils.pdf_generator import create_pdf_report  # type: ignore  # noqa: E402
 from app.data.stock_data import StockDataFetcher  # type: ignore  # noqa: E402
 from app.data.data_source import DataSourceManager, get_data_source_manager  # type: ignore  # noqa: E402
+from app.core.progress_tracker import get_progress_tracker, TaskStatus  # type: ignore  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,51 @@ class StockService:
                 self.data_source_manager = get_data_source_manager()
         else:
             self.data_source_manager = data_source_manager
+
+    async def analyze_stock_with_progress(self, task_id: str, request: StockAnalyzeRequest):
+        """带进度追踪的股票分析"""
+        tracker = get_progress_tracker()
+        
+        try:
+            tracker.update_progress(task_id, 0, "开始分析...", TaskStatus.RUNNING)
+            
+            # 处理分析师配置
+            if request.analysts:
+                agent_config = {k: v for k, v in request.analysts.items() if k in DEFAULT_ANALYSTS}
+                for key in DEFAULT_ANALYSTS:
+                    if key not in agent_config:
+                        agent_config[key] = DEFAULT_ANALYSTS[key]
+            elif request.agents:
+                agent_config = self._build_agent_config(request.agents)
+            else:
+                agent_config = DEFAULT_ANALYSTS.copy()
+            
+            tracker.update_progress(task_id, 5, "准备分析师团队...")
+            
+            # 执行分析
+            analysis_result = await asyncio.to_thread(
+                self._run_single_analysis_with_progress,
+                task_id,
+                request.stock_code,
+                request.period,
+                agent_config,
+            )
+            
+            if not analysis_result.get("success"):
+                error_msg = analysis_result.get("error", "未知错误")
+                tracker.fail_task(task_id, error_msg)
+                return
+            
+            tracker.update_progress(task_id, 95, "保存分析结果...")
+            record = self._persist_analysis("single", analysis_result)
+            response = self._build_response(analysis_result, record)
+            
+            # 完成任务
+            tracker.complete_task(task_id, response.dict())
+            
+        except Exception as exc:
+            logger.error(f"分析失败: {exc}")
+            tracker.fail_task(task_id, str(exc))
 
     async def analyze_stock(self, request: StockAnalyzeRequest) -> StockAnalyzeResponse:
         """单股分析"""
@@ -215,6 +261,102 @@ class StockService:
     # ------------------------------------------------------------------
     # 内部工具方法
     # ------------------------------------------------------------------
+
+    def _run_single_analysis_with_progress(
+        self,
+        task_id: str,
+        stock_code: str,
+        period: str,
+        agent_config: Dict[str, bool],
+    ) -> Dict[str, Any]:
+        """同步运行一次股票分析，带进度追踪"""
+        tracker = get_progress_tracker()
+        
+        tracker.update_progress(task_id, 10, f"获取{stock_code}股票信息...")
+        fetcher, stock_info, stock_data, indicators = self._prepare_stock_data(stock_code, period)
+        
+        tracker.update_progress(task_id, 20, "获取财务数据...")
+        financial_data = self._safe_call(fetcher.get_financial_data, stock_code)
+
+        quarterly_data = None
+        if agent_config.get("fundamental") and fetcher._is_chinese_stock(stock_code):
+            tracker.update_progress(task_id, 25, "获取季报数据...")
+            quarterly_data = self._safe_import_and_call(
+                module_name="quarterly_report_data",
+                class_name="QuarterlyReportDataFetcher",
+                method="get_quarterly_reports",
+                args=(stock_code,),
+                init_kwargs={"data_source_manager_instance": self.data_source_manager}
+            )
+
+        fund_flow_data = None
+        if agent_config.get("fund_flow") and fetcher._is_chinese_stock(stock_code):
+            tracker.update_progress(task_id, 30, "获取资金流向数据...")
+            fund_flow_data = self._safe_import_and_call(
+                module_name="fund_flow_akshare",
+                class_name="FundFlowAkshareDataFetcher",
+                method="get_fund_flow_data",
+                args=(stock_code,),
+                init_kwargs={"data_source_manager_instance": self.data_source_manager}
+            )
+
+        sentiment_data = None
+        if agent_config.get("sentiment") and fetcher._is_chinese_stock(stock_code):
+            tracker.update_progress(task_id, 35, "获取市场情绪数据...")
+            sentiment_data = self._safe_import_and_call(
+                module_name="market_sentiment_data",
+                class_name="MarketSentimentDataFetcher",
+                method="get_market_sentiment_data",
+                args=(stock_code, stock_data),
+                init_kwargs={"data_source_manager_instance": self.data_source_manager}
+            )
+
+        news_data = None
+        if agent_config.get("news") and fetcher._is_chinese_stock(stock_code):
+            tracker.update_progress(task_id, 40, "获取新闻公告数据...")
+            news_data = self._safe_import_and_call(
+                module_name="qstock_news_data",
+                class_name="QStockNewsDataFetcher",
+                method="get_stock_news",
+                args=(stock_code,),
+            )
+
+        risk_data = None
+        if agent_config.get("risk") and fetcher._is_chinese_stock(stock_code):
+            tracker.update_progress(task_id, 45, "获取风险指标数据...")
+            risk_data = self._safe_call(fetcher.get_risk_data, stock_code)
+
+        tracker.update_progress(task_id, 50, "AI分析师团队分析中...")
+        agents = StockAnalysisAgents(model="deepseek-chat")
+        agents_results = agents.run_multi_agent_analysis(
+            stock_info,
+            stock_data,
+            indicators,
+            financial_data,
+            fund_flow_data,
+            sentiment_data,
+            news_data,
+            quarterly_data,
+            risk_data,
+            enabled_analysts=agent_config,
+        )
+        
+        tracker.update_progress(task_id, 80, "团队讨论中...")
+        discussion_result = agents.conduct_team_discussion(agents_results, stock_info)
+        
+        tracker.update_progress(task_id, 90, "生成投资决策...")
+        final_decision = agents.make_final_decision(discussion_result, stock_info, indicators)
+
+        return {
+            "symbol": stock_code,
+            "success": True,
+            "stock_info": stock_info,
+            "indicators": indicators,
+            "agents_results": agents_results,
+            "discussion_result": discussion_result,
+            "final_decision": final_decision,
+            "saved_to_db": False,
+        }
 
     def _run_single_analysis(
         self,

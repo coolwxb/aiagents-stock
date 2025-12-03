@@ -111,7 +111,9 @@ class DataSourceManager:
                     '换手率': 'turnover'
                 })
                 df['date'] = pd.to_datetime(df['date'])
+                
                 print(f"[Akshare] ✅ 成功获取 {len(df)} 条数据")
+                print(df)
                 return df
         except Exception as e:
             print(f"[Akshare] ❌ 获取失败: {e}")
@@ -187,6 +189,7 @@ class DataSourceManager:
             print(f"[Akshare] 正在获取 {symbol} 的基本信息...")
             
             stock_info = ak.stock_individual_info_em(symbol=symbol)
+            print(stock_info)
             if stock_info is not None and not stock_info.empty:
                 for _, row in stock_info.iterrows():
                     key = row['item']
@@ -250,6 +253,7 @@ class DataSourceManager:
             print(f"[Akshare] 正在获取 {symbol} 的实时行情...")
             
             df = ak.stock_zh_a_spot_em()
+            print(df)
             stock_df = df[df['代码'] == symbol]
             
             if not stock_df.empty:
@@ -331,6 +335,7 @@ class DataSourceManager:
             
             if df is not None and not df.empty:
                 print(f"[Akshare] ✅ 成功获取财务数据")
+                print(df)
                 return df
         except Exception as e:
             print(f"[Akshare] ❌ 获取失败: {e}")

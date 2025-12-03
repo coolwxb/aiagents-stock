@@ -48,6 +48,128 @@
       </section>
 
       <el-tabs v-model="activeTab" class="monitor-tabs">
+        <el-tab-pane label="💼 持仓列表" name="positions">
+          <el-card shadow="never" class="section-card">
+            <div class="section-header">
+              <h3>QMT 持仓列表</h3>
+              <div class="header-actions">
+                <el-button icon="el-icon-refresh" size="small" :loading="positionsLoading" @click="loadPositions">
+                  刷新持仓
+                </el-button>
+              </div>
+            </div>
+            <el-alert
+              v-if="positionsFallback"
+              type="warning"
+              :closable="false"
+              show-icon
+              title="持仓接口暂不可用，展示示例数据"
+              style="margin-bottom: 12px"
+            />
+            <el-skeleton v-if="positionsLoading" :rows="4" animated />
+            <el-empty v-else-if="positionsList.length === 0" description="暂无持仓数据">
+              <template slot="description">
+                <p>暂无持仓数据</p>
+                <p class="form-tip">需要在环境配置中启用 MiniQMT 并连接交易账户</p>
+              </template>
+            </el-empty>
+            <div v-else>
+              <!-- 账户概览 -->
+              <el-row :gutter="16" class="account-summary">
+                <el-col :xs="12" :sm="6">
+                  <div class="summary-item">
+                    <p class="label">总资产</p>
+                    <p class="value">{{ formatCurrency(accountInfo.total_value) }}</p>
+                  </div>
+                </el-col>
+                <el-col :xs="12" :sm="6">
+                  <div class="summary-item">
+                    <p class="label">可用资金</p>
+                    <p class="value">{{ formatCurrency(accountInfo.available_cash) }}</p>
+                  </div>
+                </el-col>
+                <el-col :xs="12" :sm="6">
+                  <div class="summary-item">
+                    <p class="label">持仓数量</p>
+                    <p class="value">{{ accountInfo.positions_count }}</p>
+                  </div>
+                </el-col>
+                <el-col :xs="12" :sm="6">
+                  <div class="summary-item">
+                    <p class="label">总盈亏</p>
+                    <p class="value" :class="profitClass(accountInfo.total_profit_loss)">
+                      {{ formatProfit(accountInfo.total_profit_loss) }}
+                    </p>
+                  </div>
+                </el-col>
+              </el-row>
+
+              <!-- 持仓列表 -->
+              <el-table
+                :data="positionsList"
+                border
+                stripe
+                class="positions-table"
+                style="width: 100%; margin-top: 16px"
+              >
+                <el-table-column prop="stock_code" label="股票代码" min-width="120" align="center" />
+                <el-table-column prop="stock_name" label="股票名称" min-width="100" />
+                <el-table-column prop="quantity" label="持仓数量" min-width="100" align="right">
+                  <template slot-scope="scope">
+                    {{ scope.row.quantity || 0 }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="can_sell" label="可卖数量" min-width="100" align="right">
+                  <template slot-scope="scope">
+                    {{ scope.row.can_sell || 0 }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="cost_price" label="成本价" min-width="100" align="right">
+                  <template slot-scope="scope">
+                    {{ formatPrice(scope.row.cost_price) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="current_price" label="现价" min-width="100" align="right">
+                  <template slot-scope="scope">
+                    {{ formatPrice(scope.row.current_price) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="market_value" label="市值" min-width="110" align="right">
+                  <template slot-scope="scope">
+                    {{ formatCurrency(scope.row.market_value) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="profit_loss" label="浮动盈亏" min-width="110" align="right">
+                  <template slot-scope="scope">
+                    <span :class="profitClass(scope.row.profit_loss)">
+                      {{ formatProfit(scope.row.profit_loss) }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="profit_loss_pct" label="盈亏比例" min-width="100" align="right">
+                  <template slot-scope="scope">
+                    <span :class="profitClass(scope.row.profit_loss_pct)">
+                      {{ formatPercent(scope.row.profit_loss_pct) }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="操作" min-width="120" align="center" fixed="right">
+                  <template slot-scope="scope">
+                    <el-button
+                      size="mini"
+                      type="primary"
+                      icon="el-icon-s-data"
+                      @click="addToMonitor(scope.row)"
+                    >
+                      加入监控
+                    </el-button>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+          </el-card>
+        </el-tab-pane>
+
         <el-tab-pane label="📋 任务概览" name="tasks">
           <el-card shadow="never" class="section-card">
             <div class="section-header">
@@ -63,16 +185,10 @@
                 >
                   <el-button slot="append" icon="el-icon-search" @click="handleFilterChange" />
                 </el-input>
-                <el-select v-model="filters.rating" size="small" placeholder="评级筛选" @change="handleFilterChange">
-                  <el-option label="全部评级" value="all" />
-                  <el-option label="买入" value="买入" />
-                  <el-option label="持有" value="持有" />
-                  <el-option label="卖出" value="卖出" />
-                </el-select>
                 <el-select v-model="filters.status" size="small" placeholder="状态筛选" @change="handleFilterChange">
                   <el-option label="全部状态" value="all" />
                   <el-option label="运行中" value="running" />
-                  <el-option label="暂停中" value="paused" />
+                  <el-option label="已停止" value="stopped" />
                 </el-select>
               </div>
             </div>
@@ -87,43 +203,85 @@
               >
                 <div class="task-header">
                   <div>
-                    <h4>{{ task.symbol }} · {{ task.name || '未命名' }}</h4>
+                    <h4>{{ task.stock_code }} · {{ task.stock_name || task.task_name || '未命名' }}</h4>
                     <div class="task-tags">
-                      <el-tag :type="ratingTagType(task.rating)" size="mini">{{ task.rating }}</el-tag>
                       <el-tag
                         :type="task.status === 'running' ? 'success' : 'info'"
                         size="mini"
                       >{{ statusText(task.status) }}</el-tag>
-                      <el-tag v-if="task.quant_enabled" type="warning" size="mini">MiniQMT</el-tag>
+                      <el-tag v-if="task.auto_trade" type="warning" size="mini">MiniQMT</el-tag>
+                      <el-tag v-if="task.is_running" type="success" size="mini">运行中</el-tag>
                     </div>
                   </div>
                   <div class="price-block">
-                    <p class="label">当前价格</p>
-                    <p class="value">{{ formatCurrency(task.current_price) }}</p>
-                    <p class="extra">{{ formatTime(task.last_checked) }}</p>
+                    <p class="label">监测间隔</p>
+                    <p class="value">{{ task.check_interval }} 分钟</p>
+                    <p class="extra">{{ task.trading_hours_only ? '仅交易时段' : '全天监控' }}</p>
                   </div>
                 </div>
                 <el-row :gutter="12" class="task-grid-row">
-                  <el-col :sm="6" :xs="12">
+                  <el-col :sm="12" :xs="12">
                     <p class="label">进场区间</p>
                     <p class="value">{{ formatRange(task.entry_min, task.entry_max) }}</p>
                   </el-col>
-                  <el-col :sm="6" :xs="12">
-                    <p class="label">止盈位</p>
+                  <el-col :sm="12" :xs="12">
+                    <p class="label">止盈价位</p>
                     <p class="value">{{ formatCurrency(task.take_profit) }}</p>
                   </el-col>
-                  <el-col :sm="6" :xs="12">
-                    <p class="label">止损位</p>
+                </el-row>
+                <el-row :gutter="12" class="task-grid-row" style="margin-top: 8px;">
+                  <el-col :sm="12" :xs="12">
+                    <p class="label">止损价位</p>
                     <p class="value">{{ formatCurrency(task.stop_loss) }}</p>
                   </el-col>
-                  <el-col :sm="6" :xs="12">
-                    <p class="label">通知 / 频率</p>
+                  <el-col :sm="12" :xs="12">
+                    <p class="label">通知状态</p>
                     <p class="value">
-                      {{ task.notification_enabled ? '已启用' : '未启用' }}
-                      · {{ task.check_interval }} 分钟
+                      <el-tag :type="task.notification_enabled ? 'success' : 'info'" size="mini">
+                        {{ task.notification_enabled ? '已启用' : '未启用' }}
+                      </el-tag>
                     </p>
                   </el-col>
                 </el-row>
+                <el-row :gutter="12" class="task-grid-row" style="margin-top: 8px;">
+                  <el-col :sm="12" :xs="24">
+                    <p class="label">创建时间</p>
+                    <p class="value">{{ formatTime(task.created_at) }}</p>
+                  </el-col>
+                  <el-col :sm="12" :xs="24">
+                    <p class="label">更新时间</p>
+                    <p class="value">{{ formatTime(task.updated_at) }}</p>
+                  </el-col>
+                </el-row>
+                <!-- 量化配置展示 -->
+                <div v-if="task.quant_config" class="quant-info">
+                  <el-divider content-position="left">
+                    <i class="el-icon-s-data"></i> 量化配置
+                    <el-tag v-if="!task.auto_trade" type="info" size="mini" style="margin-left: 8px;">未启用</el-tag>
+                  </el-divider>
+                  <el-row :gutter="12" class="quant-row">
+                    <el-col :span="8">
+                      <p class="label">最大仓位</p>
+                      <p class="value">{{ task.quant_config.max_position_pct }}%</p>
+                    </el-col>
+                    <el-col :span="8">
+                      <p class="label">自动止盈</p>
+                      <p class="value">
+                        <el-tag :type="task.quant_config.auto_take_profit ? 'success' : 'info'" size="mini">
+                          {{ task.quant_config.auto_take_profit ? '开启' : '关闭' }}
+                        </el-tag>
+                      </p>
+                    </el-col>
+                    <el-col :span="8">
+                      <p class="label">自动止损</p>
+                      <p class="value">
+                        <el-tag :type="task.quant_config.auto_stop_loss ? 'success' : 'info'" size="mini">
+                          {{ task.quant_config.auto_stop_loss ? '开启' : '关闭' }}
+                        </el-tag>
+                      </p>
+                    </el-col>
+                  </el-row>
+                </div>
                 <div class="task-actions">
                   <el-button
                     size="mini"
@@ -144,12 +302,14 @@
                     暂停
                   </el-button>
                   <el-button size="mini" icon="el-icon-edit" @click="openEditDialog(task)">编辑</el-button>
-                  <el-popconfirm
-                    title="删除后无法恢复，确认删除？"
-                    @confirm="handleDeleteTask(task)"
+                  <el-button 
+                    size="mini" 
+                    type="danger" 
+                    icon="el-icon-delete"
+                    @click="confirmDeleteTask(task)"
                   >
-                    <el-button slot="reference" size="mini" type="danger" icon="el-icon-delete">删除</el-button>
-                  </el-popconfirm>
+                    删除
+                  </el-button>
                 </div>
               </el-card>
             </div>
@@ -219,6 +379,7 @@
                         controls-position="right"
                       />
                     </div>
+                    <span class="form-tip">💡 点击“加入监控”自动设置为当前价的上下5%</span>
                   </el-form-item>
                   <el-form-item label="止盈价位">
                     <el-input-number
@@ -228,6 +389,7 @@
                       :step="0.1"
                       controls-position="right"
                     />
+                    <span class="form-tip">💡 默认为当前价+10%</span>
                   </el-form-item>
                   <el-form-item label="止损价位">
                     <el-input-number
@@ -237,6 +399,7 @@
                       :step="0.1"
                       controls-position="right"
                     />
+                    <span class="form-tip">💡 默认为成本价-5%（无成本价则为当前价-5%）</span>
                   </el-form-item>
                   <el-form-item label="MiniQMT 量化">
                     <el-switch v-model="createForm.quant_enabled" />
@@ -480,10 +643,19 @@ export default {
   name: 'MonitorLayout',
   data() {
     return {
-      activeTab: 'tasks',
+      activeTab: 'positions',
       tasksLoading: false,
       tasksFallback: false,
       tasks: [],
+      positionsLoading: false,
+      positionsFallback: false,
+      positionsList: [],
+      accountInfo: {
+        total_value: 0,
+        available_cash: 0,
+        positions_count: 0,
+        total_profit_loss: 0
+      },
       filters: {
         keyword: '',
         rating: 'all',
@@ -511,17 +683,18 @@ export default {
       return this.tasks.filter(task => {
         const matchKeyword =
           !this.filters.keyword ||
-          task.symbol.toLowerCase().includes(this.filters.keyword.toLowerCase()) ||
-          (task.name || '').toLowerCase().includes(this.filters.keyword.toLowerCase())
-        const matchRating = this.filters.rating === 'all' || task.rating === this.filters.rating
+          (task.stock_code || '').toLowerCase().includes(this.filters.keyword.toLowerCase()) ||
+          (task.stock_name || '').toLowerCase().includes(this.filters.keyword.toLowerCase()) ||
+          (task.task_name || '').toLowerCase().includes(this.filters.keyword.toLowerCase())
         const matchStatus = this.filters.status === 'all' || task.status === this.filters.status
-        return matchKeyword && matchRating && matchStatus
+        // 暂时移除rating筛选，因为后端没有rating字段
+        return matchKeyword && matchStatus
       })
     },
     statusCards() {
       const running = this.tasks.filter(task => task.status === 'running').length
       const paused = this.tasks.length - running
-      const quantEnabled = this.tasks.filter(task => task.quant_enabled).length
+      const quantEnabled = this.tasks.filter(task => task.auto_trade).length
       return [
         { label: '监控任务', value: this.tasks.length, desc: '已配置的盯盘股票' },
         { label: '运行中', value: running, desc: '实时监控任务' },
@@ -578,19 +751,35 @@ export default {
       }
     },
     async loadPositions() {
+      this.positionsLoading = true
+      this.positionsFallback = false
       try {
         const res = await getMonitorPositions()
-        const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : []
-        this.positions = items
+        // 处理后端返回的数据结构
+        if (res && res.account_info) {
+          this.accountInfo = {
+            total_value: res.account_info.total_value || 0,
+            available_cash: res.account_info.available_cash || 0,
+            positions_count: res.account_info.positions_count || 0,
+            total_profit_loss: res.account_info.total_profit_loss || 0
+          }
+        }
+        const items = Array.isArray(res?.positions) ? res.positions : []
+        this.positionsList = items
+        this.positions = items // 保留原有的positions用于通知tab显示
       } catch (error) {
         console.warn('Failed to load positions, fallback to demo data', error)
+        this.positionsList = FALLBACK_POSITIONS
         this.positions = FALLBACK_POSITIONS
+        this.positionsFallback = true
+        this.$message.info('持仓接口暂不可用，使用示例数据')
       } finally {
+        this.positionsLoading = false
         this.computeQuantSummary()
       }
     },
     computeQuantSummary() {
-      this.quantSummary.enabled = this.tasks.filter(task => task.quant_enabled).length
+      this.quantSummary.enabled = this.tasks.filter(task => task.auto_trade).length
     },
     getEmptyTaskForm() {
       return {
@@ -755,6 +944,17 @@ export default {
         }
       }
     },
+    confirmDeleteTask(task) {
+      this.$confirm('删除后无法恢复，确认删除？', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        this.handleDeleteTask(task)
+      }).catch(() => {
+        // 用户取消删除
+      })
+    },
     async handleStartTask(task) {
       try {
         await startMonitorTask(task.id)
@@ -802,6 +1002,59 @@ export default {
           this.handleStopTask(task)
         }
       })
+    },
+    formatPrice(value) {
+      if (value === null || value === undefined || value === '') return '--'
+      const num = Number(value)
+      if (Number.isNaN(num)) return value
+      return `¥${num.toFixed(2)}`
+    },
+    formatProfit(value) {
+      if (value === null || value === undefined || value === '') return '--'
+      const num = Number(value)
+      if (Number.isNaN(num)) return value
+      const prefix = num >= 0 ? '+' : ''
+      return `${prefix}¥${num.toFixed(2)}`
+    },
+    formatPercent(value) {
+      if (value === null || value === undefined || value === '') return '--'
+      const num = Number(value)
+      if (Number.isNaN(num)) return value
+      const prefix = num >= 0 ? '+' : ''
+      return `${prefix}${num.toFixed(2)}%`
+    },
+    profitClass(value) {
+      if (value === null || value === undefined || value === '') return ''
+      const num = Number(value)
+      if (Number.isNaN(num)) return ''
+      if (num > 0) return 'profit-positive'
+      if (num < 0) return 'profit-negative'
+      return 'profit-zero'
+    },
+    addToMonitor(position) {
+      // 将持仓股票添加到监控任务
+      this.createForm.symbol = position.stock_code || position.symbol
+      this.createForm.name = position.stock_name || position.name || ''
+      
+      // 获取成本价和当前价
+      const cost = Number(position.cost_price) || 0
+      const current = Number(position.current_price) || 0
+      
+      if (current > 0) {
+        // 进场区间：当前价的上下5%
+        this.createForm.entry_min = Number((current * 0.95).toFixed(2))
+        this.createForm.entry_max = Number((current * 1.05).toFixed(2))
+        
+        // 止盈价位：当前价+10%
+        this.createForm.take_profit = Number((current * 1.1).toFixed(2))
+        
+        // 止损价位：成本价-5%（如果没有成本价，使用当前价-5%）
+        const stopLossBase = cost > 0 ? cost : current
+        this.createForm.stop_loss = Number((stopLossBase * 0.95).toFixed(2))
+      }
+      
+      this.activeTab = 'create'
+      this.$message.success('已填充持仓信息到添加监控表单')
     }
   }
 }
@@ -897,23 +1150,36 @@ export default {
 
 .task-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 20px;
   margin-top: 16px;
 }
 
 .task-card {
   border-radius: 12px;
+  min-width: 420px;
+  min-height: 360px;
+}
+
+.task-card .el-card__body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
 }
 
 .task-header {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
+  margin-bottom: 12px;
 }
 
 .task-header h4 {
-  margin: 0 0 4px;
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .task-tags {
@@ -932,7 +1198,9 @@ export default {
 
 .price-block .value {
   margin: 4px 0;
-  font-size: 18px;
+  font-size: 20px;
+  font-weight: 600;
+  color: #409eff;
 }
 
 .price-block .extra {
@@ -941,21 +1209,31 @@ export default {
   font-size: 12px;
 }
 
-.label {
-  margin: 0;
+.task-grid-row .label {
+  margin: 0 0 6px;
   color: #909399;
+  font-size: 13px;
 }
 
-.value {
-  margin: 4px 0 0;
+.task-grid-row .value {
+  margin: 0;
   font-weight: 600;
+  font-size: 15px;
+  color: #303133;
+  line-height: 1.6;
 }
 
 .task-actions {
-  margin-top: 12px;
+  margin-top: auto;
+  padding-top: 16px;
   display: flex;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.task-actions .el-button--mini {
+  padding: 8px 15px;
+  font-size: 13px;
 }
 
 .range-input {
@@ -974,6 +1252,14 @@ export default {
   font-size: 12px;
 }
 
+.form-tip:first-of-type {
+  margin-left: 0;
+  display: block;
+  margin-top: 6px;
+  color: #67c23a;
+  font-size: 12px;
+}
+
 .quant-box {
   border: 1px dashed #dcdfe6;
   border-radius: 10px;
@@ -987,7 +1273,42 @@ export default {
 }
 
 .task-grid-row {
+  margin-top: 12px;
+}
+
+.quant-info {
+  margin-top: 16px;
+  padding: 12px;
+  background: #f6f9ff;
+  border-radius: 8px;
+  border: 1px solid #e1e8ff;
+}
+
+.quant-info .el-divider {
+  margin: 0 0 12px 0;
+}
+
+.quant-info .el-divider__text {
+  font-size: 13px;
+  font-weight: 600;
+  color: #606266;
+  background: #f6f9ff;
+}
+
+.quant-row {
   margin-top: 8px;
+}
+
+.quant-info .label {
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: #909399;
+}
+
+.quant-info .value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
 }
 
 .stat-grid {
@@ -1041,6 +1362,77 @@ export default {
 .fade-enter,
 .fade-leave-to {
   opacity: 0;
+}
+
+.account-summary {
+  margin-bottom: 16px;
+}
+
+.summary-item {
+  padding: 16px;
+  background: #f7f9fc;
+  border-radius: 10px;
+  text-align: center;
+}
+
+.summary-item .label {
+  margin: 0 0 8px;
+  color: #909399;
+  font-size: 14px;
+}
+
+.summary-item .value {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #303133;
+}
+
+/* 盈亏颜色样式（中国股市习惯：红涨绿跌） */
+.profit-positive {
+  color: #f56c6c !important;  /* 红色表示上涨/盈利 */
+  font-weight: 600;
+}
+
+.profit-negative {
+  color: #67c23a !important;  /* 绿色表示下跌/亏损 */
+  font-weight: 600;
+}
+
+.profit-zero {
+  color: #909399 !important;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .task-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .task-card {
+    min-width: auto;
+  }
+  
+  .task-header {
+    flex-direction: column;
+    gap: 12px;
+  }
+  
+  .price-block {
+    text-align: left;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1200px) {
+  .task-grid {
+    grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+  }
+}
+
+@media (min-width: 1201px) {
+  .task-grid {
+    grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
+  }
 }
 </style>
 

@@ -1,7 +1,7 @@
 """
 监测相关模型
 """
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -18,6 +18,21 @@ class MonitorTask(Base):
     check_interval = Column(Integer)  # 秒
     auto_trade = Column(Boolean, default=False)
     trading_hours_only = Column(Boolean, default=False)
+    
+    # 进场区间
+    entry_min = Column(Float, nullable=True)
+    entry_max = Column(Float, nullable=True)
+    
+    # 止盈止损
+    take_profit = Column(Float, nullable=True)
+    stop_loss = Column(Float, nullable=True)
+    
+    # 通知设置
+    notification_enabled = Column(Boolean, default=False)
+    
+    # 量化配置（JSON格式存储）
+    quant_config = Column(Text, nullable=True)  # 存储JSON字符串
+    
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 

@@ -164,6 +164,47 @@
 
           <el-divider />
 
+          <!-- 分析进度显示 -->
+          <el-card v-if="progressInfo.visible" shadow="never" class="progress-card">
+            <div class="progress-header">
+              <h4>🔍 实时分析进度</h4>
+              <el-tag :type="progressInfo.progress === 100 ? 'success' : 'primary'">
+                {{ progressInfo.progress }}%
+              </el-tag>
+            </div>
+            
+            <el-progress 
+              :percentage="progressInfo.progress" 
+              :status="progressInfo.progress === 100 ? 'success' : null"
+              :stroke-width="18"
+            />
+            
+            <div class="current-step">
+              <i class="el-icon-loading" v-if="progressInfo.progress < 100"></i>
+              <i class="el-icon-success" v-else></i>
+              <span>{{ progressInfo.currentStep }}</span>
+            </div>
+            
+            <div class="step-history" v-if="progressInfo.steps.length > 0">
+              <el-collapse>
+                <el-collapse-item title="查看详细步骤" name="1">
+                  <el-timeline>
+                    <el-timeline-item
+                      v-for="(step, index) in progressInfo.steps"
+                      :key="index"
+                      :timestamp="formatStepTime(step.timestamp)"
+                      placement="top"
+                    >
+                      {{ step.step }}
+                    </el-timeline-item>
+                  </el-timeline>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
+          </el-card>
+
+          <el-divider />
+
           <template v-if="analysisMode === 'single'">
             <el-empty
               v-if="!analysisResult"
@@ -581,6 +622,9 @@ import dayjs from 'dayjs'
 import { marked } from 'marked'
 import {
   analyzeStock,
+  getAnalyzeProgress,
+  getActiveTasks,
+  connectTaskWebSocket,
   batchAnalyzeStock,
   getStockHistory,
   generateStockPDF
@@ -635,6 +679,15 @@ export default {
       historySearch: '',
       detailDialogVisible: false,
       currentDetailRecord: null,
+      // 进度相关
+      currentTaskId: null,
+      progressInfo: {
+        visible: false,
+        progress: 0,
+        currentStep: '就绪...',
+        steps: []
+      },
+      wsConnection: null // WebSocket连接
     }
   },
   computed: {
@@ -677,6 +730,8 @@ export default {
   created() {
     console.log('StockIndex component created, calling loadHistory...')
     this.loadHistory()
+    // 检查是否有进行中的任务
+    this.checkActiveTasks()
   },
   mounted() {
     console.log('StockIndex component mounted')
@@ -685,6 +740,10 @@ export default {
       console.log('History list is empty, calling loadHistory from mounted...')
       this.loadHistory()
     }
+  },
+  beforeDestroy() {
+    // 组件销毁时关闭WebSocket连接
+    this.closeWebSocket()
   },
   methods: {
     renderMarkdown(text) {
@@ -760,6 +819,11 @@ export default {
     },
     async runSingleAnalysis() {
       this.analysisLoading = true
+      this.progressInfo.visible = true
+      this.progressInfo.progress = 0
+      this.progressInfo.currentStep = '启动分析任务...'
+      this.progressInfo.steps = []
+      
       try {
         const payload = {
           stock_code: this.singleForm.symbol,
@@ -767,23 +831,148 @@ export default {
           model: this.selectedModel,
           analysts: this.analysts
         }
+        
+        // 启动分析任务
         const res = await analyzeStock(payload)
         const data = (res && (res.data || res.result || res)) || {}
-        if (data.success) {
-          this.analysisResult = data
-          this.analysisMode = 'single'
-          this.$message.success('分析完成')
+        
+        if (data.task_id) {
+          this.currentTaskId = data.task_id
+          this.$message.success('分析任务已启动，正在建立WebSocket连接...')
+          
+          // 建立WebSocket连接
+          this.connectWebSocket(data.task_id)
         } else {
-          throw new Error(data.error || '分析失败')
+          throw new Error('未获取到任务ID')
         }
       } catch (error) {
-        console.error('股票分析失败:', error)
+        console.error('启动分析失败:', error)
         this.analysisResult = null
+        this.progressInfo.visible = false
         const errorMsg = error?.response?.data?.error || error?.message || '分析失败，请检查网络连接或稍后重试'
         this.$message.error(errorMsg)
       } finally {
         this.analysisLoading = false
       }
+    },
+    
+    connectWebSocket(taskId) {
+      // 关闭旧连接
+      this.closeWebSocket()
+      
+      // 创建WebSocket连接
+      this.wsConnection = connectTaskWebSocket(
+        taskId,
+        (data) => this.handleWebSocketMessage(data),
+        (error) => this.handleWebSocketError(error)
+      )
+    },
+    
+    closeWebSocket() {
+      if (this.wsConnection) {
+        this.wsConnection.close()
+        this.wsConnection = null
+      }
+    },
+    
+    handleWebSocketMessage(data) {
+      console.log('WebSocket收到消息:', data)
+      
+      // 处理心跳响应
+      if (data.action === 'pong') {
+        return
+      }
+      
+      // 处理错误
+      if (data.error) {
+        this.$message.error(data.error)
+        this.progressInfo.visible = false
+        this.closeWebSocket()
+        return
+      }
+      
+      // 更新进度信息
+      if (data.status) {
+        this.progressInfo.progress = data.progress || 0
+        this.progressInfo.currentStep = data.current_step || '处理中...'
+        this.progressInfo.steps = data.steps || []
+        
+        // 检查是否完成
+        if (data.status === 'completed') {
+          // 显示结果
+          if (data.result) {
+            this.analysisResult = data.result.analysis_result || data.result
+            this.analysisMode = 'single'
+            this.$message.success('分析完成！')
+          }
+          
+          // 3秒后隐藏进度条
+          setTimeout(() => {
+            this.progressInfo.visible = false
+          }, 3000)
+          
+          // 关闭WebSocket连接
+          this.closeWebSocket()
+        } else if (data.status === 'failed') {
+          this.progressInfo.visible = false
+          const errorMsg = data.error || '分析失败'
+          this.$message.error(errorMsg)
+          this.closeWebSocket()
+        }
+      }
+    },
+    
+    handleWebSocketError(error) {
+      console.error('WebSocket错误:', error)
+      this.$message.error('WebSocket连接失败，请刷新页面重试')
+    },
+    
+    async checkActiveTasks() {
+      // 页面加载时检查是否有进行中的任务
+      try {
+        const res = await getActiveTasks()
+        const data = (res && (res.data || res.result || res)) || {}
+        
+        if (data.tasks && data.tasks.length > 0) {
+          // 有进行中的任务，提示用户是否继续
+          const task = data.tasks[0] // 取第一个任务
+          this.$confirm(
+            `检测到有进行中的分析任务（${task.params?.stock_code || '未知股票'})，是否继续查看？`,
+            '提示',
+            {
+              confirmButtonText: '继续查看',
+              cancelButtonText: '取消',
+              type: 'info'
+            }
+          ).then(() => {
+            // 用户选择继续，重新连接
+            this.resumeTask(task)
+          }).catch(() => {
+            // 用户取消
+          })
+        }
+      } catch (error) {
+        console.error('检查活跃任务失败:', error)
+      }
+    },
+    
+    resumeTask(task) {
+      // 恢复任务
+      this.currentTaskId = task.task_id
+      this.progressInfo.visible = true
+      this.progressInfo.progress = task.progress || 0
+      this.progressInfo.currentStep = task.current_step || '处理中...'
+      this.progressInfo.steps = task.steps || []
+      
+      // 设置表单值（如果有）
+      if (task.params?.stock_code) {
+        this.singleForm.symbol = task.params.stock_code
+      }
+      
+      // 建立WebSocket连接
+      this.connectWebSocket(task.task_id)
+      
+      this.$message.info('已重新连接到分析任务')
     },
     async runBatchAnalysis(codes) {
       this.analysisLoading = true
@@ -912,6 +1101,11 @@ export default {
     getAgentList(record) {
       if (!record.analysis_result || !record.analysis_result.agents_results) return []
       return Object.values(record.analysis_result.agents_results)
+    },
+    
+    formatStepTime(timestamp) {
+      if (!timestamp) return ''
+      return dayjs(timestamp).format('HH:mm:ss')
     }
   }
 }
@@ -1296,6 +1490,105 @@ export default {
 
   .inline-alert {
     margin-top: 12px;
+  }
+
+  // 进度卡片样式
+  .progress-card {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: #fff;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 16px 0;
+
+    .progress-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+
+      h4 {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+    }
+
+    ::v-deep .el-progress {
+      margin-bottom: 16px;
+
+      .el-progress__text {
+        color: #fff !important;
+        font-weight: 600;
+      }
+
+      .el-progress-bar__outer {
+        background-color: rgba(255, 255, 255, 0.3);
+      }
+
+      .el-progress-bar__inner {
+        background: linear-gradient(90deg, #48c6ef 0%, #6f86d6 100%);
+      }
+    }
+
+    .current-step {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      margin-bottom: 12px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+
+      i {
+        font-size: 16px;
+      }
+
+      .el-icon-loading {
+        animation: rotating 2s linear infinite;
+      }
+
+      @keyframes rotating {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    }
+
+    .step-history {
+      ::v-deep .el-collapse {
+        border: none;
+
+        .el-collapse-item__header {
+          background: transparent;
+          color: #fff;
+          border: none;
+          font-size: 13px;
+        }
+
+        .el-collapse-item__wrap {
+          background: rgba(255, 255, 255, 0.1);
+          border: none;
+        }
+
+        .el-collapse-item__content {
+          color: #fff;
+          padding: 10px;
+        }
+
+        .el-timeline-item__timestamp {
+          color: rgba(255, 255, 255, 0.8);
+          font-size: 12px;
+        }
+
+        .el-timeline-item__content {
+          color: #fff;
+        }
+      }
+    }
   }
 
   // 鍘嗗彶璁板綍鍗＄墖鏍峰紡

@@ -52,6 +52,94 @@
       </section>
 
       <el-tabs v-model="activeTab" class="realtime-tabs">
+        <el-tab-pane label="💼 持仓列表" name="positions">
+          <el-card shadow="never" class="section-card">
+            <div class="section-header">
+              <h3>QMT持仓信息</h3>
+              <div class="header-actions">
+                <el-button size="small" icon="el-icon-refresh" :loading="positionsLoading" @click="loadPositions">刷新持仓</el-button>
+              </div>
+            </div>
+            <el-skeleton v-if="positionsLoading" :rows="4" animated />
+            <el-empty v-else-if="positions.length === 0" description="暂无持仓" />
+            <div v-else class="position-grid">
+              <el-card
+                v-for="position in positions"
+                :key="position.stock_code"
+                shadow="always"
+                class="position-card"
+              >
+                <div class="position-header">
+                  <div>
+                    <h4>{{ position.stock_code }} · {{ position.stock_name || '未命名' }}</h4>
+                    <div class="position-tags">
+                      <el-tag :type="position.profit_loss_pct >= 0 ? 'success' : 'danger'" size="mini">
+                        {{ formatProfitPct(position.profit_loss_pct) }}
+                      </el-tag>
+                      <el-tag type="info" size="mini">
+                        持仓 {{ position.quantity }}股
+                      </el-tag>
+                    </div>
+                  </div>
+                  <div class="price-block">
+                    <p class="label">当前价格</p>
+                    <p class="value" :class="position.profit_loss_pct >= 0 ? 'text-success' : 'text-danger'">
+                      {{ formatCurrency(position.current_price) }}
+                    </p>
+                    <p class="extra">成本价 {{ formatCurrency(position.cost_price) }}</p>
+                  </div>
+                </div>
+                <el-row :gutter="12" class="position-grid-row">
+                  <el-col :sm="8" :xs="12">
+                    <p class="label">持仓数量</p>
+                    <p class="value">{{ position.quantity }}股</p>
+                  </el-col>
+                  <el-col :sm="8" :xs="12">
+                    <p class="label">可卖数量</p>
+                    <p class="value">{{ position.can_sell || position.quantity }}股</p>
+                  </el-col>
+                  <el-col :sm="8" :xs="12">
+                    <p class="label">市值</p>
+                    <p class="value">{{ formatCurrency(position.market_value) }}</p>
+                  </el-col>
+                </el-row>
+                <el-row :gutter="12" class="position-grid-row">
+                  <el-col :sm="12" :xs="12">
+                    <p class="label">浮动盈亏</p>
+                    <p class="value" :class="position.profit_loss >= 0 ? 'text-success' : 'text-danger'">
+                      {{ formatProfit(position.profit_loss) }}
+                    </p>
+                  </el-col>
+                  <el-col :sm="12" :xs="12">
+                    <p class="label">盈亏比例</p>
+                    <p class="value" :class="position.profit_loss_pct >= 0 ? 'text-success' : 'text-danger'">
+                      {{ formatProfitPct(position.profit_loss_pct) }}
+                    </p>
+                  </el-col>
+                </el-row>
+                <div class="position-actions">
+                  <el-button
+                    size="mini"
+                    type="primary"
+                    icon="el-icon-plus"
+                    @click="handleAddMonitorFromPosition(position)"
+                  >
+                    添加监控
+                  </el-button>
+                  <el-button
+                    size="mini"
+                    type="info"
+                    icon="el-icon-info"
+                    @click="handleViewPositionDetail(position)"
+                  >
+                    详情
+                  </el-button>
+                </div>
+              </el-card>
+            </div>
+          </el-card>
+        </el-tab-pane>
+
         <el-tab-pane label="📈 监控列表" name="list">
           <el-card shadow="never" class="section-card">
             <div class="section-header">
@@ -254,7 +342,8 @@ import {
   createMonitorTask,
   deleteMonitorTask,
   startMonitorTask,
-  stopMonitorTask
+  stopMonitorTask,
+  getMonitorPositions
 } from '@/api/monitor'
 
 const FALLBACK_TASKS = [
@@ -302,7 +391,9 @@ export default {
       tasksLoading: false,
       tasks: [],
       notifications: [],
-      activeTab: 'list',
+      positions: [],
+      positionsLoading: false,
+      activeTab: 'positions',
       filters: {
         keyword: '',
         rating: 'all'
@@ -347,10 +438,18 @@ export default {
   created() {
     this.loadAllData()
   },
+  watch: {
+    activeTab(newTab) {
+      if (newTab === 'positions') {
+        this.loadPositions()
+      }
+    }
+  },
   methods: {
     loadAllData() {
       this.loadTasks()
       this.loadNotifications()
+      this.loadPositions()
     },
     async loadTasks() {
       this.tasksLoading = true
@@ -368,6 +467,20 @@ export default {
     },
     loadNotifications() {
       this.notifications = FALLBACK_NOTIFICATIONS
+    },
+    async loadPositions() {
+      this.positionsLoading = true
+      try {
+        const res = await getMonitorPositions()
+        const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : []
+        this.positions = items
+      } catch (error) {
+        console.warn('加载持仓信息失败', error)
+        this.positions = []
+        this.$message.warning('加载持仓信息失败，请确保QMT已连接')
+      } finally {
+        this.positionsLoading = false
+      }
     },
     handleFilterChange() {
       // computed 已处理筛选，方法用于触发响应
@@ -512,6 +625,40 @@ export default {
         stop_loss: null,
         notification_enabled: true
       }
+    },
+    formatProfit(value) {
+      if (value === null || value === undefined || value === '') return '--'
+      const num = Number(value)
+      if (Number.isNaN(num)) return value
+      const sign = num >= 0 ? '+' : ''
+      return `${sign}¥${num.toFixed(2)}`
+    },
+    formatProfitPct(value) {
+      if (value === null || value === undefined || value === '') return '--'
+      const num = Number(value)
+      if (Number.isNaN(num)) return value
+      const sign = num >= 0 ? '+' : ''
+      return `${sign}${num.toFixed(2)}%`
+    },
+    handleAddMonitorFromPosition(position) {
+      // 从持仓信息预填充监控表单
+      this.createForm = {
+        symbol: position.stock_code,
+        name: position.stock_name || '',
+        rating: '持有',
+        trading_hours_only: true,
+        check_interval: 15,
+        entry_min: position.cost_price ? (position.cost_price * 0.95).toFixed(2) : null,
+        entry_max: position.cost_price ? (position.cost_price * 1.05).toFixed(2) : null,
+        take_profit: position.current_price ? (position.current_price * 1.10).toFixed(2) : null,
+        stop_loss: position.cost_price ? (position.cost_price * 0.90).toFixed(2) : null,
+        notification_enabled: true
+      }
+      this.activeTab = 'add'
+      this.$message.success('已预填充持仓信息，请调整参数后添加监控')
+    },
+    handleViewPositionDetail(position) {
+      this.$message.info(`查看 ${position.stock_code} ${position.stock_name} 详情功能待实现`)
     }
   }
 }
@@ -680,5 +827,52 @@ export default {
 .form-actions {
   margin-top: 12px;
   text-align: right;
+}
+
+.position-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.position-card {
+  border-radius: 12px;
+}
+
+.position-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.position-header h4 {
+  margin: 0 0 4px;
+}
+
+.position-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.position-grid-row {
+  margin-bottom: 12px;
+}
+
+.position-actions {
+  margin-top: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.text-success {
+  color: #67c23a;
+}
+
+.text-danger {
+  color: #f56c6c;
 }
 </style>

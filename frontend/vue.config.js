@@ -26,9 +26,41 @@ const devServer = {
   },
   proxy: {
     '/dev-api': {
-      target: 'http://localhost:8000', // FastAPI 服务地址
+      target: 'http://127.0.0.1:8000',
       changeOrigin: true,
-      pathRewrite: { '^/dev-api': '' } // 如果后端也是 /api/v1 开头可保持不变
+      pathRewrite: {
+        '^/dev-api': '' // /dev-api/api/v1/monitor -> /api/v1/monitor
+      },
+      ws: true,
+      logLevel: 'debug',
+      onProxyReq(proxyReq, req, res) {
+        console.log(`\n[代理请求]`)
+        console.log(`  原始URL: ${req.method} ${req.url}`)
+        console.log(`  目标地址: http://127.0.0.1:8000${proxyReq.path}`)
+      },
+      onProxyRes(proxyRes, req, res) {
+        console.log(`[代理响应] ${req.url} -> 状态码: ${proxyRes.statusCode}`)
+      },
+      onProxyReqWs(proxyReq, req, socket, options, head) {
+        console.log(`[WebSocket代理] ${req.url}`)
+        socket.on('error', (err) => {
+          console.error('[WebSocket错误]:', err.message)
+        })
+      },
+      onError(err, req, res) {
+        console.error(`\n[代理错误]`)
+        console.log(`  请求: ${req.method} ${req.url}`)
+        console.log(`  错误: ${err.message}`)
+        console.log(`  提示: 请确保后端服务已启动在 http://127.0.0.1:8000\n`)
+        res.writeHead(500, {
+          'Content-Type': 'application/json'
+        })
+        res.end(JSON.stringify({
+          code: 500,
+          message: `代理错误: ${err.message}. 请确保后端服务已启动在 http://127.0.0.1:8000`,
+          data: null
+        }))
+      }
     }
   }
 }

@@ -16,7 +16,13 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # CORS配置
-    CORS_ORIGINS: List[str] = ["http://localhost:8000", "http://localhost:3000"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:8000",
+        "http://localhost:9528",  # Vue 前端开发服务器
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1:9528",
+        "http://localhost:3000"
+    ]
     
     # 数据库配置
     DATABASE_URL: str = "sqlite:///./data/stock_analysis.db"
