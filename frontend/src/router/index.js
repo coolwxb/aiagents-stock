@@ -272,6 +272,19 @@ export const constantRoutes = [
     ]
   },
 
+  {
+    path: '/data',
+    component: Layout,
+    children: [
+      {
+        path: 'index',
+        name: 'DataManagement',
+        component: () => import('@/views/data/index'),
+        meta: { title: '数据管理', icon: 'el-icon-coin' }
+      }
+    ]
+  },
+
   // 404 page must be placed at the end !!!
   { path: '*', redirect: '/404', hidden: true }
 ]

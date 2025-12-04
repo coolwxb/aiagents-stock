@@ -10,9 +10,9 @@ class AnalysisHistory(Base):
     """分析历史记录模型"""
     __tablename__ = "analysis_history"
     
-    id = Column(Integer, primary_key=True, index=True)
-    analysis_type = Column(String(50))  # stock/sector/longhubang等
-    analysis_id = Column(Integer, index=True)
-    content = Column(Text)  # JSON格式的分析内容
-    created_at = Column(DateTime, server_default=func.now())
+    id = Column(Integer, primary_key=True, index=True, comment="主键ID")
+    analysis_type = Column(String(50), comment="分析类型: stock-股票分析, sector-板块分析, longhubang-龙虎榜分析")
+    analysis_id = Column(Integer, index=True, comment="关联分析记录ID")
+    content = Column(Text, comment="分析内容(JSON格式)")
+    created_at = Column(DateTime, server_default=func.now(), comment="创建时间")
 
