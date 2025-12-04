@@ -7,7 +7,7 @@
 
 from sqlalchemy.orm import Session
 from app.data.stock_data import create_stock_data_fetcher
-from app.data.data_source_manager import get_data_source_manager
+from app.data.data_source import get_data_source_manager
 from app.database import SessionLocal
 import logging
 
