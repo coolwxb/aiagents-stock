@@ -16,13 +16,10 @@ router = APIRouter()
 async def update_sectors(db: Session = Depends(get_database)):
     """更新板块数据"""
     service = DataManagementService(db)
-    try:
-        result = await service.update_sectors()
-        if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
-        return success_response(result, msg="板块数据更新成功")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = await service.update_sectors()
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return success_response(result, msg="板块数据更新成功")
 
 
 @router.post("/sectors/stocks/update")
@@ -32,13 +29,10 @@ async def update_sector_stocks(
 ):
     """更新板块成分股"""
     service = DataManagementService(db)
-    try:
-        result = await service.update_sector_stocks(sector_code)
-        if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
-        return success_response(result, msg="板块成分股更新成功")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = await service.update_sector_stocks(sector_code)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return success_response(result, msg="板块成分股更新成功")
 
 
 @router.post("/stocks/update")
@@ -48,13 +42,10 @@ async def update_stock_info(
 ):
     """更新股票基本信息"""
     service = DataManagementService(db)
-    try:
-        result = await service.update_stock_info(stock_code)
-        if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
-        return success_response(result, msg="股票信息更新成功")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    result = await service.update_stock_info(stock_code)
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return success_response(result, msg="股票信息更新成功")
 
 
 @router.get("/sectors")

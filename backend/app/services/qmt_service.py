@@ -63,10 +63,10 @@ class QMTService:
             self.StockAccount = StockAccount
             self.XtQuantTraderCallback = XtQuantTraderCallback
             
-            self.logger.info("miniQMT模块加载成功")
+            print("miniQMT模块加载成功")
         except ImportError as e:
-            self.logger.warning(f"miniQMT模块未安装: {e}")
-            self.logger.warning("将使用模拟模式")
+            print(f"miniQMT模块未安装: {e}")
+            print("将使用模拟模式")
     
     def load_config(self, db: Session):
         """

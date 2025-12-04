@@ -21,9 +21,10 @@
       "justMyCode": false,
       "cwd": "${workspaceFolder}/backend",
       "env": {
-        "PYTHONPATH": "${workspaceFolder}/backend"
-      },
-      "console": "integratedTerminal"
+  "PYTHONPATH": "${workspaceFolder};${workspaceFolder}/backend;${workspaceFolder}/xtquant"
+},
+      "console": "integratedTerminal",
+      "python": "${workspaceFolder}/backend/venv/Scripts/python.exe"
     }
   ]
 }

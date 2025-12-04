@@ -85,8 +85,8 @@ class SectorStock(Base):
     __tablename__ = "sector_stocks"
     
     id = Column(Integer, primary_key=True, index=True, comment="主键ID")
-    sector_code = Column(String(50), nullable=False, index=True, comment="板块代码")
-    合约代码 = Column(String(20), nullable=False, index=True, comment="合约代码")
+    sector_code = Column(String(50), nullable=False, comment="板块代码")
+    合约代码 = Column(String(20), nullable=False, comment="合约代码")
     市场代码 = Column(String(10), nullable=False, comment="市场代码")
     created_at = Column(DateTime, server_default=func.now(), comment="创建时间")
     

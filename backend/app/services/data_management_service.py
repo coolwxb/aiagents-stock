@@ -39,8 +39,19 @@ class DataManagementService:
             self.xtdata = xtdata
             self.xtquant_available = True
             logger.info("✅ xtquant 初始化成功")
+        except ModuleNotFoundError as e:
+            logger.warning(f"⚠️ xtquant 模块未找到: {e}")
+            logger.warning("提示: 请确保 xtquant 模块已安装，或者 QMT 软件已正确安装")
+            self.xtdata = None
+            self.xtquant_available = False
+        except ImportError as e:
+            logger.warning(f"⚠️ xtquant 模块导入失败: {e}")
+            logger.warning("提示: 请检查 Python 版本是否与 xtquant 兼容，或联系 xtquant 官方获取支持")
+            self.xtdata = None
+            self.xtquant_available = False
         except Exception as e:
             logger.warning(f"⚠️ xtquant 初始化失败: {e}")
+            logger.warning("提示: 请检查 QMT 软件是否已启动，并且允许第三方连接")
             self.xtdata = None
             self.xtquant_available = False
     
@@ -52,7 +63,9 @@ class DataManagementService:
             更新结果统计
         """
         if not self.xtquant_available:
-            return {"error": "xtquant 不可用,请检查 QMT 是否已启动"}
+            return {
+                "error": "xtquant 不可用。\n\n请检查：\n1. QMT 软件是否已正确安装\n2. QMT 软件是否已启动\n3. QMT 是否允许第三方程序连接\n4. xtquant 模块是否存在于项目根目录"
+            }
         
         try:
             logger.info("开始更新板块数据...")
@@ -134,7 +147,9 @@ class DataManagementService:
             更新结果统计
         """
         if not self.xtquant_available:
-            return {"error": "xtquant 不可用,请检查 QMT 是否已启动"}
+            return {
+                "error": "xtquant 不可用。\n\n请检查：\n1. QMT 软件是否已正确安装\n2. QMT 软件是否已启动\n3. QMT 是否允许第三方程序连接\n4. xtquant 模块是否存在于项目根目录"
+            }
         
         try:
             logger.info(f"开始更新板块成分股: {sector_code or '所有板块'}")
@@ -232,7 +247,9 @@ class DataManagementService:
             更新结果统计
         """
         if not self.xtquant_available:
-            return {"error": "xtquant 不可用,请检查 QMT 是否已启动"}
+            return {
+                "error": "xtquant 不可用。\n\n请检查：\n1. QMT 软件是否已正确安装\n2. QMT 软件是否已启动\n3. QMT 是否允许第三方程序连接\n4. xtquant 模块是否存在于项目根目录"
+            }
         
         try:
             logger.info(f"开始更新股票合约信息: {stock_code or '所有成分股'}")

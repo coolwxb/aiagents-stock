@@ -1,6 +1,7 @@
 """
 FastAPI应用入口
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,13 +10,57 @@ from fastapi.responses import JSONResponse
 from app.api.response import success_response
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.database import SessionLocal
+from app.models.config import AppConfig
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """应用生命周期管理"""
+    # 启动时：从数据库加载配置并初始化服务
+    print("\n" + "="*60)
+    print("正在从数据库加载配置...")
+    print("="*60)
+    
+    db = SessionLocal()
+    try:
+        # 从数据库加载配置
+        configs = db.query(AppConfig).all()
+        config_dict = {cfg.key: cfg.value for cfg in configs}
+        
+        # 初始化数据源管理器
+        from app.data.data_source_manager import init_data_source_manager
+        init_data_source_manager(config_dict)
+        print("✅ 数据源管理器初始化完成")
+        
+        # 初始化QMT服务
+        from app.services.qmt_service import qmt_service
+        qmt_service.load_config(db)
+        print("✅ QMT服务配置加载完成")
+        
+    except Exception as e:
+        print(f"⚠️ 配置加载失败: {e}")
+        print("将使用默认配置")
+    finally:
+        db.close()
+    
+    print("="*60)
+    print("服务启动完成")
+    print("="*60 + "\n")
+    
+    yield
+    
+    # 关闭时清理
+    print("\n服务正在关闭...")
+
 
 app = FastAPI(
     title="AI股票分析系统API",
     version="1.0.0",
     description="基于FastAPI的AI股票分析系统后端API",
     docs_url="/api/docs",
-    redoc_url="/api/redoc"
+    redoc_url="/api/redoc",
+    lifespan=lifespan
 )
 
 # CORS配置
