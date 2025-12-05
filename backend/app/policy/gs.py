@@ -105,6 +105,7 @@ def load_xtquant_kline(stock_code, end_date, period='1d', count=200):
         end_date_yyyymmdd = end_date.replace('-', '')
     else:
         end_date_yyyymmdd = end_date
+    xtdata.subscribe_quote(stock_code, period='1d', start_time='', end_time=end_date_yyyymmdd, count=0, callback=None)
     
     # 使用get_market_data_ex方法获取数据
     data = xtdata.get_market_data_ex(
@@ -126,7 +127,7 @@ def load_xtquant_kline(stock_code, end_date, period='1d', count=200):
         print(f"历史数据下载完成，重新获取数据...")
         
         # 重新获取数据
-        data = xtdata.get_market_data_ex(
+        data = xtdata.get_market_data(
             field_list=["time", "open", "high", "low", "close", "volume"],
             stock_list=[stock_code],
             period=period,
@@ -253,8 +254,8 @@ def plot_g_signals(df):
 # =============================================================
 if __name__ == "__main__":
 
-    stock = "600467.SH"  # 使用贵航股份作为测试股票
-    df = load_xtquant_kline(stock, end_date="20251204", period='1d', count=200)  # 使用指定的截止日期
+    stock = "688333.SH"  # 使用贵航股份作为测试股票
+    df = load_xtquant_kline(stock, end_date="20251205", period='1d', count=200)  # 使用指定的截止日期
     
     # 检查是否获取到数据
     if df.empty:

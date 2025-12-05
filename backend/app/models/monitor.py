@@ -14,6 +14,7 @@ class MonitorTask(Base):
     task_name = Column(String(100), comment="任务名称")
     stock_code = Column(String(20), nullable=False, index=True, comment="股票代码")
     stock_name = Column(String(100), comment="股票名称")
+    strategy = Column(String(20), default="GS", comment="监控策略: GS-中枢策略, AI-AI策略")
     status = Column(String(20), comment="任务状态: running-运行中, stopped-已停止")
     check_interval = Column(Integer, comment="检查间隔(秒)")
     auto_trade = Column(Boolean, default=False, comment="是否自动交易")

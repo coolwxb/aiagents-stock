@@ -32,14 +32,14 @@ const devServer = {
         '^/dev-api': '' // /dev-api/api/v1/monitor -> /api/v1/monitor
       },
       ws: true,
-      logLevel: 'debug',
+     
       onProxyReq(proxyReq, req, res) {
-        console.log(`\n[代理请求]`)
-        console.log(`  原始URL: ${req.method} ${req.url}`)
-        console.log(`  目标地址: http://127.0.0.1:8000${proxyReq.path}`)
+        // console.log(`\n[代理请求]`)
+        // console.log(`  原始URL: ${req.method} ${req.url}`)
+        // console.log(`  目标地址: http://127.0.0.1:8000${proxyReq.path}`)
       },
       onProxyRes(proxyRes, req, res) {
-        console.log(`[代理响应] ${req.url} -> 状态码: ${proxyRes.statusCode}`)
+        // console.log(`[代理响应] ${req.url} -> 状态码: ${proxyRes.statusCode}`)
       },
       onProxyReqWs(proxyReq, req, socket, options, head) {
         console.log(`[WebSocket代理] ${req.url}`)

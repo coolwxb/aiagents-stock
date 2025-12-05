@@ -13,6 +13,7 @@ from app.models.portfolio import PortfolioStock
 from app.models.user import User
 from app.models.config import AppConfig
 from app.models.sector import Sector, StockInstrument, SectorStock
+from app.models.monitor import MonitorTask  # 确保包含最新字段（strategy等）
 
 
 def init_database():

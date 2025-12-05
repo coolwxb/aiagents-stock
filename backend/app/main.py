@@ -1,6 +1,40 @@
 """
 FastAPI应用入口
 """
+import os
+import sys
+
+# 在导入其他模块之前，先添加 xtquant 路径
+def _init_xtquant_path():
+    """初始化 xtquant 模块路径"""
+    try:
+        # 计算项目根目录路径
+        # 从 backend/app/main.py 向上3级到项目根目录
+        current_file = os.path.abspath(__file__)
+        backend_dir = os.path.dirname(os.path.dirname(current_file))
+        project_root = os.path.dirname(backend_dir)
+        
+        # xtquant 需要项目根目录在 sys.path 中才能正确导入
+        # 将项目根目录添加到 sys.path（如果还没有添加）
+        if project_root not in sys.path:
+            sys.path.insert(0, project_root)
+            print(f"✅ 已添加项目根目录到路径: {project_root}")
+        
+        # 验证 xtquant 目录是否存在
+        xtquant_path = os.path.join(project_root, 'xtquant')
+        if os.path.exists(xtquant_path):
+            print(f"✅ xtquant 目录存在: {xtquant_path}")
+            return True
+        else:
+            print(f"⚠️ xtquant 目录不存在: {xtquant_path}")
+            return False
+    except Exception as e:
+        print(f"⚠️ 初始化 xtquant 路径失败: {e}")
+        return False
+
+# 启动时初始化路径
+_init_xtquant_path()
+
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -29,7 +63,7 @@ async def lifespan(app: FastAPI):
         config_dict = {cfg.key: cfg.value for cfg in configs}
         
         # 初始化数据源管理器
-        from app.data.data_source import get_data_source_manager
+        from app.data.data_source_manager import get_data_source_manager
         data_source_manager = get_data_source_manager(config_dict)
         print("✅ 数据源管理器初始化完成")
         

@@ -7,8 +7,27 @@
           <p class="subtitle">参考 Streamlit 版本的智能盯盘体验，集中管理监控任务、通知与量化状态</p>
         </div>
         <div class="header-actions">
+          <div class="quick-add-box">
+            <el-input
+              v-model="quickAddCode"
+              placeholder="输入股票代码快速添加（如：600519）"
+              size="small"
+              clearable
+              style="width: 240px; margin-right: 8px;"
+              @keyup.enter.native="handleQuickAdd"
+            >
+              <el-button
+                slot="append"
+                icon="el-icon-plus"
+                :loading="quickAddLoading"
+                @click="handleQuickAdd"
+              >
+                快速添加
+              </el-button>
+            </el-input>
+          </div>
           <el-button icon="el-icon-refresh" :loading="tasksLoading" @click="loadAllData">刷新数据</el-button>
-          <el-button type="primary" icon="el-icon-plus" @click="setActiveTab('create')">快速添加监控</el-button>
+          <el-button type="primary" icon="el-icon-plus" @click="setActiveTab('create')">添加监控</el-button>
         </div>
       </div>
 
@@ -209,6 +228,7 @@
                         :type="task.status === 'running' ? 'success' : 'info'"
                         size="mini"
                       >{{ statusText(task.status) }}</el-tag>
+                      <el-tag type="primary" size="mini">{{ task.strategy || 'GS' }}</el-tag>
                       <el-tag v-if="task.auto_trade" type="warning" size="mini">MiniQMT</el-tag>
                       <el-tag v-if="task.is_running" type="success" size="mini">运行中</el-tag>
                     </div>
@@ -336,6 +356,20 @@
                   <el-form-item label="股票名称">
                     <el-input v-model="createForm.name" placeholder="可选，留空自动获取" clearable />
                   </el-form-item>
+                  <el-form-item label="策略" prop="strategy">
+                    <el-select v-model="createForm.strategy" placeholder="请选择策略" @change="onStrategyChange('create')">
+                      <el-option label="GS 策略" value="GS" />
+                      <el-option label="AI 策略" value="AI" />
+                    </el-select>
+                    <div class="form-tip strategy-tip">
+                      <template v-if="isCreateGS">
+                        GS策略：执行策略脚本，等待触发买卖信号，实时价格成交（价格相关字段和量化配置不可编辑）
+                      </template>
+                      <template v-else>
+                        AI策略：根据AI模型给出的买卖信号执行操作，成交价格为设置的进场/止盈/止损价格
+                      </template>
+                    </div>
+                  </el-form-item>
                   <el-form-item label="投资评级">
                     <el-select v-model="createForm.rating" placeholder="请选择">
                       <el-option label="买入" value="买入" />
@@ -368,6 +402,7 @@
                         :min="0"
                         :precision="2"
                         :step="0.1"
+                        :disabled="isCreateGS"
                         controls-position="right"
                       />
                       <span class="range-split">~</span>
@@ -376,6 +411,7 @@
                         :min="0"
                         :precision="2"
                         :step="0.1"
+                        :disabled="isCreateGS"
                         controls-position="right"
                       />
                     </div>
@@ -387,6 +423,7 @@
                       :min="0"
                       :precision="2"
                       :step="0.1"
+                      :disabled="isCreateGS"
                       controls-position="right"
                     />
                     <span class="form-tip">💡 默认为当前价+10%</span>
@@ -397,13 +434,14 @@
                       :min="0"
                       :precision="2"
                       :step="0.1"
+                      :disabled="isCreateGS"
                       controls-position="right"
                     />
                     <span class="form-tip">💡 默认为成本价-5%（无成本价则为当前价-5%）</span>
                   </el-form-item>
                   <el-form-item label="MiniQMT 量化">
-                    <el-switch v-model="createForm.quant_enabled" />
-                    <span class="form-tip">需要在环境配置中启用 MiniQMT</span>
+                    <el-switch v-model="createForm.quant_enabled" :disabled="isCreateGS" />
+                    <span class="form-tip">需要在环境配置中启用 MiniQMT；GS策略下自动禁用量化配置</span>
                   </el-form-item>
                   <transition name="fade">
                     <div v-if="createForm.quant_enabled" class="quant-box">
@@ -415,13 +453,14 @@
                           :step="5"
                           show-input
                           input-size="small"
+                          :disabled="isCreateGS"
                         />
                       </el-form-item>
                       <el-form-item label="自动止盈">
-                        <el-switch v-model="createForm.quant_config.auto_take_profit" />
+                        <el-switch v-model="createForm.quant_config.auto_take_profit" :disabled="isCreateGS" />
                       </el-form-item>
                       <el-form-item label="自动止损">
-                        <el-switch v-model="createForm.quant_config.auto_stop_loss" />
+                        <el-switch v-model="createForm.quant_config.auto_stop_loss" :disabled="isCreateGS" />
                       </el-form-item>
                     </div>
                   </transition>
@@ -533,6 +572,20 @@
         <el-form-item label="股票名称">
           <el-input v-model="editForm.name" />
         </el-form-item>
+        <el-form-item label="策略" prop="strategy">
+          <el-select v-model="editForm.strategy" @change="onStrategyChange('edit')">
+            <el-option label="GS 策略" value="GS" />
+            <el-option label="AI 策略" value="AI" />
+          </el-select>
+          <div class="form-tip strategy-tip">
+            <template v-if="isEditGS">
+              GS策略：执行策略脚本，等待触发买卖信号，实时价格成交（价格相关字段和量化配置不可编辑）
+            </template>
+            <template v-else>
+              AI策略：根据AI模型给出的买卖信号执行操作，成交价格为设置的进场/止盈/止损价格
+            </template>
+          </div>
+        </el-form-item>
         <el-form-item label="评级">
           <el-select v-model="editForm.rating">
             <el-option label="买入" value="买入" />
@@ -545,21 +598,46 @@
         </el-form-item>
         <el-form-item label="进场区间">
           <div class="range-input">
-            <el-input-number v-model="editForm.entry_min" :min="0" :precision="2" :step="0.1" />
+            <el-input-number v-model="editForm.entry_min" :min="0" :precision="2" :step="0.1" :disabled="isEditGS" />
             <span class="range-split">~</span>
-            <el-input-number v-model="editForm.entry_max" :min="0" :precision="2" :step="0.1" />
+            <el-input-number v-model="editForm.entry_max" :min="0" :precision="2" :step="0.1" :disabled="isEditGS" />
           </div>
         </el-form-item>
         <el-form-item label="止盈 / 止损">
           <div class="range-input">
-            <el-input-number v-model="editForm.take_profit" :min="0" :precision="2" :step="0.1" />
+            <el-input-number v-model="editForm.take_profit" :min="0" :precision="2" :step="0.1" :disabled="isEditGS" />
             <span class="range-split">/</span>
-            <el-input-number v-model="editForm.stop_loss" :min="0" :precision="2" :step="0.1" />
+            <el-input-number v-model="editForm.stop_loss" :min="0" :precision="2" :step="0.1" :disabled="isEditGS" />
           </div>
         </el-form-item>
         <el-form-item label="启用通知">
           <el-switch v-model="editForm.notification_enabled" />
         </el-form-item>
+        <el-form-item label="MiniQMT 量化">
+          <el-switch v-model="editForm.quant_enabled" :disabled="isEditGS" />
+          <span class="form-tip">GS策略下量化配置不可编辑</span>
+        </el-form-item>
+        <transition name="fade">
+          <div v-if="editForm.quant_enabled" class="quant-box">
+            <el-form-item label="最大仓位(%)">
+              <el-slider
+                v-model="editForm.quant_config.max_position_pct"
+                :min="5"
+                :max="50"
+                :step="5"
+                show-input
+                input-size="small"
+                :disabled="isEditGS"
+              />
+            </el-form-item>
+            <el-form-item label="自动止盈">
+              <el-switch v-model="editForm.quant_config.auto_take_profit" :disabled="isEditGS" />
+            </el-form-item>
+            <el-form-item label="自动止损">
+              <el-switch v-model="editForm.quant_config.auto_stop_loss" :disabled="isEditGS" />
+            </el-form-item>
+          </div>
+        </transition>
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button @click="editDialogVisible = false">取消</el-button>
@@ -578,7 +656,8 @@ import {
   startMonitorTask,
   stopMonitorTask,
   getMonitorHistory,
-  getMonitorPositions
+  getMonitorPositions,
+  getStockQuote
 } from '@/api/monitor'
 
 const FALLBACK_TASKS = [
@@ -665,7 +744,8 @@ export default {
       updatingTask: false,
       createForm: this.getEmptyTaskForm(),
       createRules: {
-        symbol: [{ required: true, message: '请输入股票代码', trigger: 'blur' }]
+        symbol: [{ required: true, message: '请输入股票代码', trigger: 'blur' }],
+        strategy: [{ required: true, message: '请选择策略', trigger: 'change' }]
       },
       editDialogVisible: false,
       editForm: {},
@@ -675,7 +755,9 @@ export default {
       positions: [],
       quantSummary: {
         enabled: 0
-      }
+      },
+      quickAddCode: '',
+      quickAddLoading: false
     }
   },
   computed: {
@@ -707,6 +789,12 @@ export default {
     },
     hasPausedTask() {
       return this.tasks.some(task => task.status !== 'running')
+    },
+    isCreateGS() {
+      return (this.createForm.strategy || 'GS').toUpperCase() === 'GS'
+    },
+    isEditGS() {
+      return (this.editForm.strategy || 'GS').toUpperCase() === 'GS'
     }
   },
   created() {
@@ -785,6 +873,7 @@ export default {
       return {
         symbol: '',
         name: '',
+        strategy: 'GS',
         rating: '买入',
         status: 'running',
         entry_min: null,
@@ -821,6 +910,10 @@ export default {
     formatRange(min, max) {
       if (min === null || max === null || min === undefined || max === undefined) return '--'
       return `${this.formatCurrency(min)} ~ ${this.formatCurrency(max)}`
+    },
+    formatStrategy(strategy) {
+      if (!strategy) return 'GS'
+      return strategy.toUpperCase()
     },
     formatCurrency(value) {
       if (value === null || value === undefined || value === '') return '--'
@@ -893,7 +986,19 @@ export default {
       })
     },
     openEditDialog(task) {
-      this.editForm = { ...task }
+      this.editForm = {
+        ...task,
+        strategy: task.strategy || 'GS',
+        quant_enabled: task.quant_config ? true : Boolean(task.auto_trade),
+        quant_config: task.quant_config || {
+          max_position_pct: 20,
+          auto_stop_loss: true,
+          auto_take_profit: true
+        }
+      }
+      if (this.isEditGS) {
+        this.editForm.quant_enabled = false
+      }
       this.editDialogVisible = true
       this.$nextTick(() => {
         if (this.$refs.editFormRef) {
@@ -1035,6 +1140,7 @@ export default {
       // 将持仓股票添加到监控任务
       this.createForm.symbol = position.stock_code || position.symbol
       this.createForm.name = position.stock_name || position.name || ''
+      this.createForm.strategy = 'GS'
       
       // 获取成本价和当前价
       const cost = Number(position.cost_price) || 0
@@ -1055,6 +1161,80 @@ export default {
       
       this.activeTab = 'create'
       this.$message.success('已填充持仓信息到添加监控表单')
+    },
+    async handleQuickAdd() {
+      if (!this.quickAddCode || !this.quickAddCode.trim()) {
+        this.$message.warning('请输入股票代码')
+        return
+      }
+      
+      const stockCode = this.quickAddCode.trim()
+      this.quickAddLoading = true
+      
+      try {
+        // 获取股票实时行情
+        const res = await getStockQuote(stockCode)
+        const quote = res.data || res
+        
+        if (!quote || !quote.current_price) {
+          this.$message.error('无法获取股票价格信息，请检查股票代码是否正确')
+          return
+        }
+        
+        const currentPrice = Number(quote.current_price) || 0
+        if (currentPrice <= 0) {
+          this.$message.error('获取的股票价格无效')
+          return
+        }
+        
+        // 自动填充表单数据
+        this.createForm.symbol = stockCode
+        this.createForm.name = quote.stock_name || ''
+        this.createForm.strategy = 'GS'
+        
+        // 进场区间：当前价的上下5%
+        this.createForm.entry_min = Number((currentPrice * 0.95).toFixed(2))
+        this.createForm.entry_max = Number((currentPrice * 1.05).toFixed(2))
+        
+        // 止盈价位：当前价+10%
+        this.createForm.take_profit = Number((currentPrice * 1.1).toFixed(2))
+        
+        // 止损价位：当前价-5%
+        this.createForm.stop_loss = Number((currentPrice * 0.95).toFixed(2))
+        
+        // 切换到添加监控标签页
+        this.activeTab = 'create'
+        
+        // 清空快速添加输入框
+        this.quickAddCode = ''
+        
+        this.$message.success(`已自动填充 ${quote.stock_name || stockCode} 的监控配置（当前价：¥${currentPrice.toFixed(2)}）`)
+        
+        // 滚动到表单位置
+        this.$nextTick(() => {
+          const formElement = document.querySelector('.create-form')
+          if (formElement) {
+            formElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          }
+        })
+      } catch (error) {
+        console.error('快速添加失败:', error)
+        const errorMsg = error.response?.data?.msg || error.message || '获取股票信息失败'
+        this.$message.error(`快速添加失败: ${errorMsg}`)
+      } finally {
+        this.quickAddLoading = false
+      }
+    },
+    onStrategyChange(formType) {
+      if (formType === 'create') {
+        if (this.isCreateGS) {
+          this.createForm.quant_enabled = false
+        }
+      } else if (formType === 'edit') {
+        if (this.isEditGS) {
+          this.editForm.quant_enabled = false
+        }
+      }
     }
   }
 }
@@ -1085,6 +1265,12 @@ export default {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+.quick-add-box {
+  display: flex;
+  align-items: center;
 }
 
 .page-tip {

@@ -55,7 +55,7 @@ class MonitorService:
                     MonitorService._qmt_connected = True
                     self.logger.info(f"QMT连接成功: {msg}")
                 else:
-                    self.logger.warning(f"QMT连接失败: {msg}，将使用模拟模式")
+                    self.logger.warning(f"MonitorService  QMT连接失败: {msg}，将使用模拟模式")
             
             self.logger.info("智能盯盘引擎初始化完成（使用backend内部模块）")
         except Exception as e:
@@ -96,6 +96,7 @@ class MonitorService:
                     'stock_code': task.stock_code,
                     'stock_name': task.stock_name,
                     'status': task.status,
+                    'strategy': task.strategy or 'GS',
                     'check_interval': task.check_interval,
                     'auto_trade': task.auto_trade,
                     'trading_hours_only': task.trading_hours_only,
@@ -156,6 +157,7 @@ class MonitorService:
                 task_name=task_data.get('task_name') or task_data.get('name') or stock_code,
                 stock_code=stock_code,
                 stock_name=task_data.get('stock_name') or task_data.get('name', ''),
+                strategy=task_data.get('strategy') or 'GS',
                 status=status,
                 check_interval=task_data.get('check_interval', 300),
                 auto_trade=task_data.get('auto_trade') or task_data.get('quant_enabled', False),
@@ -186,6 +188,7 @@ class MonitorService:
                 'stock_code': new_task.stock_code,
                 'stock_name': new_task.stock_name,
                 'status': new_task.status,
+                'strategy': new_task.strategy,
                 'check_interval': new_task.check_interval,
                 'auto_trade': new_task.auto_trade,
                 'trading_hours_only': new_task.trading_hours_only,
@@ -223,6 +226,8 @@ class MonitorService:
                 task.task_name = task_data['task_name']
             if 'check_interval' in task_data:
                 task.check_interval = task_data['check_interval']
+            if 'strategy' in task_data:
+                task.strategy = task_data['strategy']
             if 'auto_trade' in task_data:
                 task.auto_trade = task_data['auto_trade']
             if 'trading_hours_only' in task_data:
@@ -262,6 +267,7 @@ class MonitorService:
                 'stock_code': task.stock_code,
                 'stock_name': task.stock_name,
                 'status': task.status,
+                'strategy': task.strategy,
                 'check_interval': task.check_interval,
                 'auto_trade': task.auto_trade,
                 'trading_hours_only': task.trading_hours_only,
@@ -333,7 +339,8 @@ class MonitorService:
                 stock_code=task.stock_code,
                 check_interval=task.check_interval,
                 auto_trade=task.auto_trade,
-                trading_hours_only=task.trading_hours_only
+                trading_hours_only=task.trading_hours_only,
+                strategy=task.strategy or 'GS'
             )
             
             # 更新任务状态
@@ -515,8 +522,59 @@ class MonitorService:
                 'error': str(e)
             }
     
+    async def get_stock_quote(self, stock_code: str) -> Dict:
+        """
+        获取股票实时行情
+        
+        Args:
+            stock_code: 股票代码
+            
+        Returns:
+            实时行情信息，包含价格、名称等
+        """
+        try:
+            import asyncio
+            # 使用 StockDataFetcher 获取实时行情
+            if MonitorService._data_fetcher is None:
+                MonitorService._data_fetcher = StockDataFetcher()
+            
+            # 获取实时行情
+            quote = await asyncio.to_thread(
+                MonitorService._data_fetcher.get_realtime_quote,
+                stock_code
+            )
+            
+            if quote is None:
+                raise ValueError(f"无法获取股票 {stock_code} 的实时行情")
+            
+            # 获取股票基本信息
+            stock_info = await asyncio.to_thread(
+                MonitorService._data_fetcher.get_stock_info,
+                stock_code
+            )
+            
+            # 合并信息
+            result = {
+                'stock_code': stock_code,
+                'stock_name': quote.get('name') or stock_info.get('name', ''),
+                'current_price': quote.get('price', 0),
+                'change': quote.get('change', 0),
+                'change_percent': quote.get('change_percent', 0),
+                'volume': quote.get('volume', 0),
+                'high': quote.get('high', 0),
+                'low': quote.get('low', 0),
+                'open': quote.get('open', 0),
+                'pre_close': quote.get('pre_close', 0),
+            }
+            
+            return result
+        except Exception as e:
+            self.logger.error(f"获取股票行情失败 {stock_code}: {e}")
+            raise ValueError(f"获取股票行情失败: {str(e)}")
+    
     async def _start_monitor_thread(self, stock_code: str, check_interval: int,
-                                    auto_trade: bool, trading_hours_only: bool):
+                                    auto_trade: bool, trading_hours_only: bool,
+                                    strategy: str = 'GS'):
         """
         启动监控线程
         
@@ -537,7 +595,7 @@ class MonitorService:
         # 创建监控线程
         thread = threading.Thread(
             target=self._monitor_loop,
-            args=(stock_code, check_interval, auto_trade, trading_hours_only, stop_flag),
+            args=(stock_code, check_interval, auto_trade, trading_hours_only, strategy, stop_flag),
             daemon=True
         )
         
@@ -570,8 +628,8 @@ class MonitorService:
         self.logger.info(f"监控线程 {stock_code} 已停止")
     
     def _monitor_loop(self, stock_code: str, check_interval: int,
-                     auto_trade: bool, trading_hours_only: bool, 
-                     stop_flag: threading.Event):
+                     auto_trade: bool, trading_hours_only: bool,
+                     strategy: str, stop_flag: threading.Event):
         """
         监控循环（在独立线程中运行）
         
@@ -590,7 +648,8 @@ class MonitorService:
                 result = self._analyze_stock(
                     stock_code=stock_code,
                     auto_trade=auto_trade,
-                    trading_hours_only=trading_hours_only
+                    trading_hours_only=trading_hours_only,
+                    strategy=strategy
                 )
                 
                 if result.get('success'):
@@ -607,7 +666,7 @@ class MonitorService:
         self.logger.info(f"[{stock_code}] 监控循环已退出")
     
     def _analyze_stock(self, stock_code: str, auto_trade: bool = False,
-                      trading_hours_only: bool = True) -> Dict:
+                      trading_hours_only: bool = True, strategy: str = 'GS') -> Dict:
         """
         分析股票（使用 backend 内部模块）
         
@@ -641,38 +700,40 @@ class MonitorService:
             #         'skipped': True,
             #         'error': '非交易时段，跳过分析'
             #     }
+
+
+            print(f"strategy: 按照策略{strategy}进行分析")  
+        
             
-            # 2. 获取市场数据（使用 backend 的 StockDataFetcher）
-            if MonitorService._data_fetcher:
-                # 获取股票基本信息
-                stock_info = MonitorService._data_fetcher.get_stock_info(stock_code)
-                print(f"stock_info: {stock_info}")
-                if not stock_info or stock_info.get('error'):
+                
+                    
+            # 3. 根据策略选择决策逻辑
+            if (strategy or '').upper() == 'AI':
+                # 2. 获取市场数据（使用 backend 的 StockDataFetcher）
+                if MonitorService._data_fetcher:
+                    # 获取股票基本信息
+                    stock_info = MonitorService._data_fetcher.get_stock_info(stock_code)
+                    print(f"stock_info: {stock_info}")
+                    if not stock_info or stock_info.get('error'):
+                         return {
+                            'success': False,
+                            'error': '获取股票信息失败'
+                        }
+                    
+                    # 获取技术指标
+                    indicators = MonitorService._data_fetcher.get_technical_indicators(stock_code)
+                    decision = self._make_ai_decision(stock_info, indicators)
                     return {
-                        'success': False,
-                        'error': '获取股票信息失败'
-                    }
-                
-                # 获取技术指标
-                indicators = MonitorService._data_fetcher.get_technical_indicators(stock_code)
-                
-                # 3. 简化决策（实际应调用 DeepSeekClient 进行 AI 决策）
-                # TODO: 实现完整的 AI 决策逻辑
-                # decision = self._make_simple_decision(stock_info, indicators)
-                
-                return {
-                    'success': True,
-                    'stock_code': stock_code,
-                    'stock_name': stock_info.get('name', ''),
-                    'decision': decision,
-                    'market_data': stock_info,
-                    'indicators': indicators
-                }
+                        'success': True,
+                        'stock_code': stock_code,
+                        'stock_name': stock_info.get('name', ''),
+                        'decision': decision,
+                        'market_data': stock_info,
+                        'indicators': indicators
+                        }
             else:
-                return {
-                    'success': False,
-                    'error': '数据获取模块未初始化'
-                }
+                decision = self._make_simple_decision(stock_info, indicators)
+                return 
                 
         except Exception as e:
             self.logger.error(f"分析股票失败: {e}")
@@ -729,4 +790,6 @@ class MonitorService:
                 'risk_level': 'high',
                 'position_size_pct': 0
             }
+
+    
 

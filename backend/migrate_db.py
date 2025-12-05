@@ -60,6 +60,11 @@ def upgrade():
             if 'quant_config' not in existing_columns:
                 conn.execute(text("ALTER TABLE monitor_tasks ADD COLUMN quant_config TEXT;"))
                 print("  ✓ 添加 quant_config")
+
+            # 策略字段
+            if 'strategy' not in existing_columns:
+                conn.execute(text("ALTER TABLE monitor_tasks ADD COLUMN strategy TEXT DEFAULT 'GS';"))
+                print("  ✓ 添加 strategy (默认 GS)")
             
             conn.commit()
             print("\n✅ 数据库迁移成功完成！")
@@ -70,6 +75,7 @@ def upgrade():
             print("  - stop_loss (止损价位)")
             print("  - notification_enabled (通知开关)")
             print("  - quant_config (量化配置JSON)")
+            print("  - strategy (监控策略，默认GS)")
             
         except Exception as e:
             conn.rollback()

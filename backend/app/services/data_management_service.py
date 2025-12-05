@@ -20,18 +20,8 @@ class DataManagementService:
         self._init_xtquant()
     
     def _init_xtquant(self):
-        """初始化 xtquant"""
+        """初始化 xtquant（路径已在 main.py 启动时初始化）"""
         try:
-            import sys
-            import os
-            # 添加 xtquant 路径
-            xtquant_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 
-                'xtquant'
-            )
-            if xtquant_path not in sys.path:
-                sys.path.insert(0, xtquant_path)
-            
             from xtquant import xtdata
             
             # 尝试连接

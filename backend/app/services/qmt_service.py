@@ -5,6 +5,7 @@ QMT交易服务
 """
 import logging
 import time
+import threading
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 from enum import Enum
@@ -36,6 +37,12 @@ class QMTService:
     _connected = False
     _config = {}  # 缓存配置
     
+    # 全推数据存储（内存中）
+    _whole_quote_data = {}  # {stock_code: {行情数据}}
+    _whole_quote_lock = threading.Lock()  # 线程锁，保护数据更新
+    _whole_quote_subscribed = False  # 是否已订阅全推
+    _whole_quote_seq = None  # 全推订阅号
+    
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -52,7 +59,7 @@ class QMTService:
         self._try_import_qmt()
     
     def _try_import_qmt(self):
-        """尝试导入QMT模块"""
+        """尝试导入QMT模块（路径已在 main.py 启动时初始化）"""
         try:
             from xtquant import xttrader, xtdata
             from xtquant.xttype import StockAccount
@@ -63,9 +70,19 @@ class QMTService:
             self.StockAccount = StockAccount
             self.XtQuantTraderCallback = XtQuantTraderCallback
             
-            print("miniQMT模块加载成功")
+            self.logger.info("miniQMT模块加载成功")
+            print("✅ miniQMT模块加载成功")
+            
+            # QMT加载成功后，初始化全推数据订阅
+            self._init_whole_quote_subscribe()
+            
         except ImportError as e:
-            print(f"miniQMT模块未安装: {e}")
+            self.logger.warning(f"QMTService miniQMT模块未安装: {e}")
+            print(f"⚠️ QMTService miniQMT模块未安装: {e}")
+            print("将使用模拟模式")
+        except Exception as e:
+            self.logger.warning(f"QMTService 初始化失败: {e}")
+            print(f"⚠️ QMTService 初始化失败: {e}")
             print("将使用模拟模式")
     
     def load_config(self, db: Session):
@@ -198,6 +215,9 @@ class QMTService:
     
     def disconnect(self):
         """断开连接"""
+        # 取消全推数据订阅
+        self.unsubscribe_whole_quote()
+        
         if QMTService._xttrader:
             try:
                 QMTService._xttrader.stop()
@@ -584,6 +604,569 @@ class QMTService:
             return f"{stock_code}.SZ"
         else:
             return stock_code
+    
+    def _init_whole_quote_subscribe(self):
+        """
+        初始化全推数据订阅
+        参考文档: https://dict.thinktrader.net/nativeApi/xtdata.html?id=T87jC8#%E8%AE%A2%E9%98%85%E5%85%A8%E6%8E%A8%E8%A1%8C%E6%83%85
+        """
+        if not self.xtdata_module:
+            self.logger.warning("xtdata模块未加载，无法订阅全推数据")
+            return
+        
+        if QMTService._whole_quote_subscribed:
+            print("全推数据已订阅，跳过重复订阅")
+            return
+        
+        try:
+            # 连接xtdata（如果未连接）
+            try:
+                self.xtdata_module.connect()
+                print("xtdata连接成功")
+            except Exception as e:
+                print(f"xtdata连接失败（可能已连接）: {e}")
+            
+            # 定义全推数据回调函数
+            # 使用闭包捕获logger引用
+            logger_ref = self.logger
+            index = 0
+            def on_whole_quote_data(datas):
+                """
+                全推数据回调函数
+                
+                Args:
+                    datas: 全推数据字典，格式为 {stock_code: {行情字段}}
+                """
+               
+                try:
+                    with QMTService._whole_quote_lock:
+                        # 更新内存中的数据
+                        for stock_code, quote_data in datas.items():
+                            # 添加更新时间戳
+                            quote_data['update_time'] = time.time()
+                            quote_data['update_datetime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                            
+                            # 更新或新增数据
+                            QMTService._whole_quote_data[stock_code] = quote_data
+                        
+                        
+                
+                except Exception as e:
+                    print(f"处理全推数据回调失败: {e}")
+            
+            # 订阅全推行情（订阅沪深两市）
+            # 可以订阅市场代码 ['SH', 'SZ'] 或具体股票代码列表
+            market_list = ['SH', 'SZ']  # 订阅上海和深圳市场
+            
+            QMTService._whole_quote_seq = self.xtdata_module.subscribe_whole_quote(
+                market_list,
+                callback=on_whole_quote_data
+            )
+            
+            if QMTService._whole_quote_seq:
+                QMTService._whole_quote_subscribed = True
+                print(f"全推数据订阅成功，订阅号: {QMTService._whole_quote_seq}, 市场: {market_list}")
+                print(f"✅ 全推数据订阅成功，订阅号: {QMTService._whole_quote_seq}")
+            else:
+                print("全推数据订阅失败，返回订阅号为None")
+                
+        except Exception as e:
+            print(f"初始化全推数据订阅失败: {e}")
+            print(f"⚠️ 全推数据订阅失败: {e}")
+    
+    def unsubscribe_whole_quote(self):
+        """
+        取消全推数据订阅
+        """
+        if not QMTService._whole_quote_subscribed or not QMTService._whole_quote_seq:
+            return
+        
+        try:
+            if self.xtdata_module:
+                self.xtdata_module.unsubscribe_quote(QMTService._whole_quote_seq)
+                QMTService._whole_quote_subscribed = False
+                QMTService._whole_quote_seq = None
+                self.logger.info("全推数据订阅已取消")
+        except Exception as e:
+            self.logger.error(f"取消全推数据订阅失败: {e}")
+    
+    def get_whole_quote_data(self, stock_code: Optional[str] = None) -> Dict:
+        """
+        获取全推实时行情数据
+        
+        Args:
+            stock_code: 股票代码（如：600519 或 600519.SH），如果为None则返回所有数据
+        
+        Returns:
+            行情数据字典
+            - 如果指定stock_code，返回该股票的行情数据
+            - 如果stock_code为None，返回所有股票的行情数据
+        """
+        with QMTService._whole_quote_lock:
+            if stock_code is None:
+                # 返回所有数据
+                return QMTService._whole_quote_data.copy()
+            else:
+                # 格式化股票代码
+                full_code = self._format_stock_code(stock_code)
+                
+                # 尝试多种格式查找
+                quote_data = None
+                
+                # 1. 直接查找完整代码
+                if full_code in QMTService._whole_quote_data:
+                    quote_data = QMTService._whole_quote_data[full_code]
+                # 2. 查找原始代码
+                elif stock_code in QMTService._whole_quote_data:
+                    quote_data = QMTService._whole_quote_data[stock_code]
+                # 3. 查找不带点的代码
+                elif full_code.replace('.', '') in QMTService._whole_quote_data:
+                    code_no_dot = full_code.replace('.', '')
+                    quote_data = QMTService._whole_quote_data[code_no_dot]
+                
+                if quote_data:
+                    return quote_data.copy()
+                else:
+                    return {}
+    
+    def get_stock_quote(self, stock_code: str) -> Optional[Dict]:
+        """
+        获取指定股票的实时行情（便捷方法）
+        
+        Args:
+            stock_code: 股票代码（如：600519 或 600519.SH）
+        
+        Returns:
+            行情数据字典，如果未找到返回None
+        """
+        quote_data = self.get_whole_quote_data(stock_code)
+        return quote_data if quote_data else None
+    
+    def get_stocks_quote(self, stock_codes: List[str]) -> Dict[str, Dict]:
+        """
+        批量获取多个股票的实时行情
+        
+        Args:
+            stock_codes: 股票代码列表
+        
+        Returns:
+            {stock_code: {行情数据}} 字典
+        """
+        result = {}
+        for stock_code in stock_codes:
+            quote_data = self.get_whole_quote_data(stock_code)
+            if quote_data:
+                result[stock_code] = quote_data
+        return result
+    
+    def get_whole_quote_stats(self) -> Dict:
+        """
+        获取全推数据统计信息
+        
+        Returns:
+            统计信息字典
+        """
+        with QMTService._whole_quote_lock:
+            total_count = len(QMTService._whole_quote_data)
+            
+            # 获取最新更新时间
+            latest_update_time = 0
+            if QMTService._whole_quote_data:
+                for data in QMTService._whole_quote_data.values():
+                    update_time = data.get('update_time', 0)
+                    if update_time > latest_update_time:
+                        latest_update_time = update_time
+            
+            return {
+                'subscribed': QMTService._whole_quote_subscribed,
+                'subscription_seq': QMTService._whole_quote_seq,
+                'total_stocks': total_count,
+                'latest_update_time': latest_update_time,
+                'latest_update_datetime': datetime.fromtimestamp(latest_update_time).strftime('%Y-%m-%d %H:%M:%S') if latest_update_time > 0 else None
+            }
+    
+    def get_stock_info(self, stock_code: str) -> Optional[Dict]:
+        """
+        获取股票基础信息（合约基础信息）
+        参考文档: https://dict.thinktrader.net/nativeApi/xtdata.html?id=T87jC8#%E5%9F%BA%E7%A1%80%E8%A1%8C%E6%83%85%E4%BF%A1%E6%81%AF
+        
+        Args:
+            stock_code: 股票代码（如：600519 或 600519.SH）
+        
+        Returns:
+            股票基础信息字典，包含以下字段（根据官方文档）:
+            - InstrumentID: 合约代码
+            - InstrumentName: 合约名称
+            - ExchangeID: 合约市场代码
+            - OpenDate: IPO日期
+            - ExpireDate: 退市日或到期日
+            - PreClose: 前收盘价格
+            - UpStopPrice: 当日涨停价
+            - DownStopPrice: 当日跌停价
+            - FloatVolume: 流通股本
+            - TotalVolume: 总股本
+            - PriceTick: 最小变价单位
+            - IsTrading: 合约是否可交易
+            - 以及其他合约信息字段
+        """
+        if not self.xtdata_module:
+            self.logger.warning("xtdata模块未加载，无法获取股票信息")
+            return None
+        
+        try:
+            # 格式化股票代码
+            full_code = self._format_stock_code(stock_code)
+            
+            # 获取合约基础信息
+            instrument_detail = self.xtdata_module.get_instrument_detail(full_code)
+            
+            if not instrument_detail:
+                self.logger.debug(f"未获取到股票 {full_code} 的基础信息")
+                return None
+            
+            # 返回完整的基础信息
+            return instrument_detail.copy()
+            
+        except Exception as e:
+            self.logger.error(f"获取股票基础信息失败 {stock_code}: {e}")
+            return None
+    
+    def get_stocks_info(self, stock_codes: List[str]) -> Dict[str, Dict]:
+        """
+        批量获取多个股票的基础信息
+        
+        Args:
+            stock_codes: 股票代码列表
+        
+        Returns:
+            {stock_code: {基础信息}} 字典，未找到的股票不会包含在结果中
+        """
+        result = {}
+        for stock_code in stock_codes:
+            info = self.get_stock_info(stock_code)
+            if info:
+                result[stock_code] = info
+        return result
+    
+    def get_stock_basic_info(self, stock_code: str) -> Optional[Dict]:
+        """
+        获取股票基础信息（简化版，只返回常用字段）
+        
+        Args:
+            stock_code: 股票代码（如：600519 或 600519.SH）
+        
+        Returns:
+            包含常用基础信息的字典:
+            - stock_code: 股票代码（带市场后缀）
+            - stock_name: 股票名称
+            - exchange: 交易所代码
+            - ipo_date: IPO日期
+            - expire_date: 退市日期
+            - pre_close: 前收盘价
+            - up_stop_price: 涨停价
+            - down_stop_price: 跌停价
+            - float_volume: 流通股本
+            - total_volume: 总股本
+            - price_tick: 最小变价单位
+            - is_trading: 是否可交易
+        """
+        full_info = self.get_stock_info(stock_code)
+        if not full_info:
+            return None
+        
+        # 提取常用字段
+        return {
+            'stock_code': self._format_stock_code(stock_code),
+            'stock_name': full_info.get('InstrumentName', ''),
+            'exchange': full_info.get('ExchangeID', ''),
+            'ipo_date': full_info.get('OpenDate', ''),
+            'expire_date': full_info.get('ExpireDate', ''),
+            'pre_close': full_info.get('PreClose', 0),
+            'up_stop_price': full_info.get('UpStopPrice', 0),
+            'down_stop_price': full_info.get('DownStopPrice', 0),
+            'float_volume': full_info.get('FloatVolume', 0),
+            'total_volume': full_info.get('TotalVolume', 0),
+            'price_tick': full_info.get('PriceTick', 0),
+            'is_trading': full_info.get('IsTrading', False),
+            # 保留原始完整信息
+            'full_info': full_info
+        }
+    
+    def get_financial_data(self, stock_code: str, report_type: str = 'Income', 
+                          start_date: str = '', end_date: str = '') -> Optional[Dict]:
+        """
+        获取财务数据
+        参考文档: https://dict.thinktrader.net/nativeApi/xtdata.html?id=T87jC8#%E8%B4%A2%E5%8A%A1%E6%95%B0%E6%8D%AE%E6%8E%A5%E5%8F%A3
+        财务数据字段列表: https://dict.thinktrader.net/nativeApi/xtdata.html?id=T87jC8#%E8%B4%A2%E5%8A%A1%E6%95%B0%E6%8D%AE%E5%AD%97%E6%AE%B5%E5%88%97%E8%A1%A8
+        
+        Args:
+            stock_code: 股票代码（如：600519 或 600519.SH）
+            report_type: 报表类型，可选值：
+                - 'Balance': 资产负债表
+                  主要字段: totalAssets(资产总计), totalLiab(负债合计), totalEquity(股东权益合计),
+                           currentAssets(流动资产合计), nonCurrentAssets(非流动资产合计),
+                           currentLiab(流动负债合计), nonCurrentLiab(非流动负债合计) 等
+                
+                - 'Income': 利润表
+                  主要字段: revenue(营业收入), totalOperCost(营业总成本), operProfit(营业利润),
+                           totProfit(利润总额), netProfit(净利润), netProfitExclMinIntInc(归母净利润),
+                           revenueInc(营业收入), totalExpense(营业成本), saleExpense(销售费用),
+                           financialExpense(财务费用), lessGerlAdminExp(管理费用) 等
+                
+                - 'CashFlow': 现金流量表
+                  主要字段: netCashFlowOper(经营活动产生的现金流量净额),
+                           netCashFlowInv(投资活动产生的现金流量净额),
+                           netCashFlowFin(筹资活动产生的现金流量净额),
+                           netCashFlow(现金及现金等价物净增加额) 等
+                
+                - 'PershareIndex': 主要指标
+                  主要字段: eps(每股收益), bps(每股净资产), roe(净资产收益率),
+                           roa(总资产收益率), grossProfitRate(销售毛利率),
+                           netProfitRate(销售净利率) 等
+                
+                - 'Capital': 股本表
+                  主要字段: totalShare(总股本), floatShare(流通股本), restrictedShare(限售股本) 等
+                
+                - 'Top10holder': 十大股东
+                  主要字段: holderName(股东名称), holdRatio(持股比例), holdAmount(持股数量) 等
+                
+                - 'Top10flowholder': 十大流通股东
+                  主要字段: holderName(股东名称), holdRatio(持股比例), holdAmount(持股数量) 等
+                
+                - 'Holdernum': 股东数
+                  主要字段: shareholder(股东总数), shareholderA(A股东户数), shareholderB(B股东户数),
+                           shareholderH(H股东户数), shareholderFloat(已流通股东户数) 等
+            
+            start_date: 开始日期（格式：'20240101'），空字符串表示不限制
+            end_date: 结束日期（格式：'20241231'），空字符串表示不限制
+        
+        Returns:
+            财务数据字典，格式为 {报表类型: {报告期: {字段: 值}}}
+            例如: {'Income': {'20231231': {'revenue': 1000, 'netProfit': 500, ...}, ...}}
+            
+            注意: 字段名称使用QMT官方字段名（英文），具体字段列表请参考官方文档
+        """
+        if not self.xtdata_module:
+            self.logger.warning("xtdata模块未加载，无法获取财务数据")
+            return None
+        
+        try:
+            # 格式化股票代码
+            full_code = self._format_stock_code(stock_code)
+            
+            # 获取财务数据
+            # QMT的get_financial_data返回格式: {报表类型: {报告期: {字段: 值}}}
+            financial_data = self.xtdata_module.get_financial_data(
+                stock_code=full_code,
+                table_list=[report_type],
+                start_time=start_date,
+                end_time=end_date
+            )
+            
+            if not financial_data:
+                self.logger.debug(f"未获取到股票 {full_code} 的财务数据（类型: {report_type}）")
+                return None
+            
+            # 返回财务数据（QMT返回的格式）
+            return financial_data
+            
+        except Exception as e:
+            self.logger.error(f"获取财务数据失败 {stock_code} (类型: {report_type}): {e}")
+            return None
+    
+    def download_financial_data(self, stock_code: str, report_type: str = 'Income',
+                               start_date: str = '', end_date: str = '') -> bool:
+        """
+        下载财务数据到本地
+        参考文档: https://dict.thinktrader.net/nativeApi/xtdata.html?id=T87jC8#%E8%B4%A2%E5%8A%A1%E6%95%B0%E6%8D%AE%E6%8E%A5%E5%8F%A3
+        
+        下载后的数据会保存到本地，后续调用get_financial_data时会优先从本地读取
+        
+        Args:
+            stock_code: 股票代码（如：600519 或 600519.SH）
+            report_type: 报表类型，可选值：
+                - 'Balance': 资产负债表
+                - 'Income': 利润表
+                - 'CashFlow': 现金流量表
+                - 'PershareIndex': 主要指标
+                - 'Capital': 股本表
+                - 'Top10holder': 十大股东
+                - 'Top10flowholder': 十大流通股东
+                - 'Holdernum': 股东数
+            start_date: 开始日期（格式：'20240101'），空字符串表示不限制
+            end_date: 结束日期（格式：'20241231'），空字符串表示不限制
+        
+        Returns:
+            bool: 下载是否成功
+        """
+        if not self.xtdata_module:
+            self.logger.warning("xtdata模块未加载，无法下载财务数据")
+            return False
+        
+        try:
+            # 格式化股票代码
+            full_code = self._format_stock_code(stock_code)
+            
+            # 下载财务数据
+            result = self.xtdata_module.download_financial_data(
+                stock_code=full_code,
+                table_list=[report_type],
+                start_time=start_date,
+                end_time=end_date
+            )
+            
+            if result:
+                self.logger.info(f"财务数据下载成功: {full_code} (类型: {report_type})")
+                return True
+            else:
+                self.logger.warning(f"财务数据下载失败: {full_code} (类型: {report_type})")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"下载财务数据失败 {stock_code} (类型: {report_type}): {e}")
+            return False
+    
+    def get_financial_data_simple(self, stock_code: str, report_type: str = 'income') -> Optional[Dict]:
+        """
+        获取财务数据（简化版，兼容data_source_manager的接口）
+        
+        Args:
+            stock_code: 股票代码
+            report_type: 报表类型（'income'利润表, 'balance'资产负债表, 'cashflow'现金流量表）
+        
+        Returns:
+            财务数据字典，如果失败返回None
+        """
+        # 映射报表类型到QMT格式
+        type_mapping = {
+            'income': 'Income',
+            'balance': 'Balance',
+            'cashflow': 'CashFlow'
+        }
+        
+        qmt_report_type = type_mapping.get(report_type.lower(), 'Income')
+        
+        return self.get_financial_data(stock_code, qmt_report_type)
+    
+    @staticmethod
+    def get_financial_fields_info(report_type: str) -> Dict[str, List[str]]:
+        """
+        获取财务数据字段信息说明
+        
+        参考文档: https://dict.thinktrader.net/nativeApi/xtdata.html?id=T87jC8#%E8%B4%A2%E5%8A%A1%E6%95%B0%E6%8D%AE%E5%AD%97%E6%AE%B5%E5%88%97%E8%A1%A8
+        
+        Args:
+            report_type: 报表类型
+        
+        Returns:
+            字段信息字典，包含字段名称列表和说明
+        """
+        fields_info = {
+            'Balance': {
+                'description': '资产负债表',
+                'main_fields': [
+                    'totalAssets - 资产总计',
+                    'totalLiab - 负债合计',
+                    'totalEquity - 股东权益合计',
+                    'currentAssets - 流动资产合计',
+                    'nonCurrentAssets - 非流动资产合计',
+                    'currentLiab - 流动负债合计',
+                    'nonCurrentLiab - 非流动负债合计',
+                    'monetaryFunds - 货币资金',
+                    'accountsReceivable - 应收账款',
+                    'inventory - 存货',
+                    'fixedAssets - 固定资产',
+                    'intangibleAssets - 无形资产'
+                ]
+            },
+            'Income': {
+                'description': '利润表',
+                'main_fields': [
+                    'revenue - 营业收入',
+                    'revenueInc - 营业收入（明细）',
+                    'totalOperCost - 营业总成本',
+                    'totalExpense - 营业成本',
+                    'operProfit - 营业利润',
+                    'totProfit - 利润总额',
+                    'netProfit - 净利润',
+                    'netProfitExclMinIntInc - 归母净利润',
+                    'saleExpense - 销售费用',
+                    'financialExpense - 财务费用',
+                    'lessGerlAdminExp - 管理费用',
+                    'incTax - 所得税',
+                    'grossProfit - 毛利润'
+                ]
+            },
+            'CashFlow': {
+                'description': '现金流量表',
+                'main_fields': [
+                    'netCashFlowOper - 经营活动产生的现金流量净额',
+                    'netCashFlowInv - 投资活动产生的现金流量净额',
+                    'netCashFlowFin - 筹资活动产生的现金流量净额',
+                    'netCashFlow - 现金及现金等价物净增加额',
+                    'cashFlowOper - 经营活动产生的现金流量',
+                    'cashFlowInv - 投资活动产生的现金流量',
+                    'cashFlowFin - 筹资活动产生的现金流量'
+                ]
+            },
+            'PershareIndex': {
+                'description': '主要指标',
+                'main_fields': [
+                    'eps - 每股收益',
+                    'bps - 每股净资产',
+                    'roe - 净资产收益率',
+                    'roa - 总资产收益率',
+                    'grossProfitRate - 销售毛利率',
+                    'netProfitRate - 销售净利率',
+                    'debtToAssetRatio - 资产负债率',
+                    'currentRatio - 流动比率',
+                    'quickRatio - 速动比率'
+                ]
+            },
+            'Capital': {
+                'description': '股本表',
+                'main_fields': [
+                    'totalShare - 总股本',
+                    'floatShare - 流通股本',
+                    'restrictedShare - 限售股本',
+                    'changeReason - 变动原因'
+                ]
+            },
+            'Top10holder': {
+                'description': '十大股东',
+                'main_fields': [
+                    'holderName - 股东名称',
+                    'holdRatio - 持股比例',
+                    'holdAmount - 持股数量',
+                    'holdChange - 持股变化'
+                ]
+            },
+            'Top10flowholder': {
+                'description': '十大流通股东',
+                'main_fields': [
+                    'holderName - 股东名称',
+                    'holdRatio - 持股比例',
+                    'holdAmount - 持股数量',
+                    'holdChange - 持股变化'
+                ]
+            },
+            'Holdernum': {
+                'description': '股东数',
+                'main_fields': [
+                    'shareholder - 股东总数',
+                    'shareholderA - A股东户数',
+                    'shareholderB - B股东户数',
+                    'shareholderH - H股东户数',
+                    'shareholderFloat - 已流通股东户数',
+                    'shareholderOther - 未流通股东户数'
+                ]
+            }
+        }
+        
+        return fields_info.get(report_type, {
+            'description': '未知报表类型',
+            'main_fields': []
+        })
 
 
 # 全局QMT服务实例

@@ -76,3 +76,11 @@ export function getMonitorHistory(params) {
   })
 }
 
+// 获取股票实时行情
+export function getStockQuote(stockCode) {
+  return request({
+    url: `/api/v1/monitor/quote/${stockCode}`,
+    method: 'get'
+  })
+}
+

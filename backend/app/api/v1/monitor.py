@@ -132,3 +132,16 @@ async def get_history(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.get("/quote/{stock_code}")
+async def get_stock_quote(
+    stock_code: str,
+    db: Session = Depends(get_database)
+):
+    """获取股票实时行情"""
+    service = MonitorService(db)
+    try:
+        result = await service.get_stock_quote(stock_code)
+        return success_response(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
