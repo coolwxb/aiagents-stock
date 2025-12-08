@@ -5,9 +5,6 @@
         <div>
           <p class="hero-eyebrow">Multi-Agent Dragon Tiger</p>
           <h2>🐲 智瞰龙虎 · 游资多维洞察</h2>
-          <p class="hero-subtitle">
-            复刻 Streamlit 版本的智瞰龙虎：游资行为、个股潜力、题材风向与风控提示一应俱全，支持批量分析与历史报告回放。
-          </p>
           <div class="hero-tags">
             <el-tag effect="dark" type="success">游资席位</el-tag>
             <el-tag effect="dark" type="warning">AI评分</el-tag>
@@ -46,13 +43,13 @@
               <el-col :xs="24" :md="8">
                 <el-form-item v-if="analysisMode === 'date'" label="龙虎榜日期">
                   <el-date-picker
-                    v-model="selectedDate"
+                    v-model="selectedDateObj"
                     type="date"
                     placeholder="选择日期"
-                    format="YYYY-MM-DD"
-                    value-format="YYYY-MM-DD"
+                    format="yyyy-MM-dd"
+                    value-format="yyyy-MM-dd"
                     :disabled-date="disableFutureDate"
-                    class="full-width"
+                    style="width: 100%"
                   />
                 </el-form-item>
                 <el-form-item v-else label="最近天数">
@@ -69,10 +66,21 @@
               <el-col :xs="24" :md="8">
                 <el-form-item label="执行操作">
                   <div class="form-actions">
-                    <el-button type="primary" :loading="analysisLoading" @click="handleAnalyze">
+                    <el-button
+                      v-if="!analysisLoading"
+                      type="primary"
+                      @click="handleAnalyze"
+                    >
                       🚀 开始分析
                     </el-button>
-                    <el-button :disabled="!analysisResult" @click="clearResult">清除结果</el-button>
+                    <el-button
+                      v-else
+                      type="info"
+                      disabled
+                    >
+                      ⏳ 分析中...
+                    </el-button>
+                    <el-button :disabled="!analysisResult || analysisLoading" @click="clearResult">清除结果</el-button>
                   </div>
                 </el-form-item>
               </el-col>
@@ -80,6 +88,40 @@
           </el-form>
 
           <el-divider />
+
+          <!-- 分析进度显示 -->
+          <div v-if="analysisLoading" class="progress-section">
+            <el-card shadow="never" class="progress-card">
+              <div class="progress-header">
+                <span class="progress-title">🔄 分析进行中...</span>
+                <span class="progress-percent">{{ analysisProgress }}%</span>
+              </div>
+              <p class="task-id" v-if="taskId">任务ID: {{ taskId }}</p>
+              <el-progress
+                :percentage="analysisProgress"
+                :stroke-width="12"
+                :show-text="false"
+                status="success"
+              />
+              <p class="progress-message">{{ analysisMessage }}</p>
+              <div class="progress-logs" v-if="analysisLogs.length > 0">
+                <div class="logs-header">
+                  <span>📋 实时日志</span>
+                  <el-button size="mini" type="text" @click="analysisLogs = []">清空</el-button>
+                </div>
+                <div class="logs-container" ref="logsContainer">
+                  <p
+                    v-for="(log, index) in analysisLogs"
+                    :key="index"
+                    :class="['log-item', `log-${log.level}`]"
+                  >
+                    <span class="log-time">{{ log.time }}</span>
+                    <span class="log-text">{{ log.message }}</span>
+                  </p>
+                </div>
+              </div>
+            </el-card>
+          </div>
 
           <el-row v-if="analysisResult" :gutter="16" class="quick-stats">
             <el-col v-for="card in quickCards" :key="card.label" :xs="12" :sm="6">
@@ -180,7 +222,7 @@
                     关注领域：{{ (agent.focus_areas && agent.focus_areas.join('、')) || '暂无' }}
                   </p>
                   <p class="timestamp">分析时间：{{ agent.timestamp }}</p>
-                  <p class="analysis-text">{{ agent.analysis }}</p>
+                  <div class="analysis-content-md" v-html="renderMarkdown(agent.analysis)"></div>
                 </el-collapse-item>
               </el-collapse>
             </section>
@@ -207,7 +249,7 @@
                     <el-table-column prop="code" label="代码" width="100" />
                     <el-table-column prop="name" label="股票" />
                     <el-table-column
-                      prop="netInflow"
+                      prop="net_inflow"
                       label="净流入"
                       width="140"
                       :formatter="formatCurrencyCell"
@@ -238,7 +280,11 @@
             />
             <el-button icon="el-icon-refresh" :loading="historyLoading" @click="loadHistory">刷新</el-button>
           </div>
-          <el-empty v-if="filteredHistory.length === 0" description="暂无历史记录" />
+          <el-empty v-if="filteredHistory.length === 0" description="暂无历史报告，请先执行龙虎榜分析">
+            <el-button type="primary" size="small" @click="activeTab = 'analysis'">
+              去分析
+            </el-button>
+          </el-empty>
           <el-timeline v-else>
             <el-timeline-item
               v-for="item in filteredHistory"
@@ -271,7 +317,8 @@
         <el-tab-pane label="📈 数据统计" name="stats">
           <el-skeleton v-if="statsLoading" :rows="6" animated />
           <template v-else>
-            <el-row :gutter="16" class="quick-stats">
+            <!-- 统计概览卡片 -->
+            <el-row v-if="statsCards.length > 0" :gutter="16" class="quick-stats">
               <el-col v-for="card in statsCards" :key="card.label" :xs="12" :sm="6">
                 <el-card shadow="never" class="stat-card">
                   <p class="label">{{ card.label }}</p>
@@ -281,59 +328,72 @@
               </el-col>
             </el-row>
             <el-alert
-              v-if="statsSummary && statsSummary.date_range"
+              v-if="statsSummary && statsSummary.date_range && statsSummary.date_range.start"
               :closable="false"
               type="info"
               class="inline-alert"
               :title="`数据范围：${statsSummary.date_range.start} ~ ${statsSummary.date_range.end}`"
             />
-            <section class="sub-section">
-              <h3>🏅 历史活跃游资</h3>
-              <el-table :data="statsTopYouzi" border size="small">
-                <el-table-column prop="name" label="游资名称" />
-                <el-table-column prop="trade_count" label="上榜次数" width="120" />
-                <el-table-column
-                  prop="net_inflow"
-                  label="总净流入"
-                  width="160"
-                  :formatter="formatCurrencyCell"
-                />
-              </el-table>
-            </section>
-            <section class="sub-section">
-              <h3>📈 历史热门股票</h3>
-              <el-table :data="statsTopStocks" border size="small">
-                <el-table-column prop="code" label="代码" width="110" />
-                <el-table-column prop="name" label="股票名称" />
-                <el-table-column prop="youzi_count" label="游资数量" width="120" />
-                <el-table-column
-                  prop="net_inflow"
-                  label="总净流入"
-                  width="160"
-                  :formatter="formatCurrencyCell"
-                />
-              </el-table>
-            </section>
-            <section class="sub-section">
-              <h3>🏆 综合评分 TOP20</h3>
-              <el-table :data="statsScoreboard" border stripe size="small">
-                <el-table-column prop="rank" label="排名" width="70" />
-                <el-table-column prop="name" label="股票" />
-                <el-table-column prop="code" label="代码" width="110" />
-                <el-table-column
-                  prop="score"
-                  label="综合评分"
-                  width="120"
-                  :formatter="formatScoreCell"
-                />
-                <el-table-column
-                  prop="netInflow"
-                  label="净流入"
-                  width="140"
-                  :formatter="formatCurrencyCell"
-                />
-              </el-table>
-            </section>
+
+            <!-- 无数据提示 -->
+            <el-empty
+              v-if="!statsSummary || statsSummary.total_records === 0"
+              description="暂无龙虎榜统计数据，请先执行龙虎榜分析以获取数据"
+            >
+              <el-button type="primary" size="small" @click="activeTab = 'analysis'">
+                去分析
+              </el-button>
+            </el-empty>
+
+            <template v-else>
+              <section class="sub-section">
+                <h3>🏅 历史活跃游资 (近30天)</h3>
+                <el-table :data="statsTopYouzi" border size="small" empty-text="暂无游资数据">
+                  <el-table-column prop="name" label="游资名称" />
+                  <el-table-column prop="trade_count" label="上榜次数" width="120" />
+                  <el-table-column
+                    prop="net_inflow"
+                    label="总净流入"
+                    width="160"
+                    :formatter="formatCurrencyCell"
+                  />
+                </el-table>
+              </section>
+              <section class="sub-section">
+                <h3>📈 历史热门股票 (近30天)</h3>
+                <el-table :data="statsTopStocks" border size="small" empty-text="暂无股票数据">
+                  <el-table-column prop="code" label="代码" width="110" />
+                  <el-table-column prop="name" label="股票名称" />
+                  <el-table-column prop="youzi_count" label="游资数量" width="120" />
+                  <el-table-column
+                    prop="net_inflow"
+                    label="总净流入"
+                    width="160"
+                    :formatter="formatCurrencyCell"
+                  />
+                </el-table>
+              </section>
+              <section class="sub-section">
+                <h3>🏆 综合评分 TOP20</h3>
+                <el-table :data="statsScoreboard" border stripe size="small" empty-text="暂无评分数据，请先执行龙虎榜分析">
+                  <el-table-column prop="rank" label="排名" width="70" />
+                  <el-table-column prop="name" label="股票" />
+                  <el-table-column prop="code" label="代码" width="110" />
+                  <el-table-column
+                    prop="score"
+                    label="综合评分"
+                    width="120"
+                    :formatter="formatScoreCell"
+                  />
+                  <el-table-column
+                    prop="netInflow"
+                    label="净流入"
+                    width="140"
+                    :formatter="formatCurrencyCell"
+                  />
+                </el-table>
+              </section>
+            </template>
           </template>
         </el-tab-pane>
       </el-tabs>
@@ -343,12 +403,22 @@
 
 <script>
 import dayjs from 'dayjs'
+import { marked } from 'marked'
 import {
   analyzeLonghubang,
   getLonghubangHistory,
   getLonghubangScoring,
+  getLonghubangStatistics,
+  getTopYouzi,
+  getTopStocks,
   generateLonghubangPDF
 } from '@/api/longhubang'
+
+// 配置 marked 选项
+marked.setOptions({
+  breaks: true, // 支持换行
+  gfm: true // 支持 GitHub 风格 Markdown
+})
 
 const MODEL_OPTIONS = [
   { value: 'deepseek-chat', label: 'DeepSeek V3 Chat（默认）' },
@@ -356,244 +426,20 @@ const MODEL_OPTIONS = [
   { value: 'openai-gpt4o', label: 'OpenAI GPT-4o' }
 ]
 
-const createFallbackResult = () => {
-  const timestamp = dayjs().subtract(1, 'day').format('YYYY-MM-DD HH:mm:ss')
-  return {
-    success: true,
-    timestamp,
-    data_info: {
-      total_records: 128,
-      total_stocks: 62,
-      total_youzi: 31,
-      data_range: dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
-      summary: {
-        top_youzi: {
-          章盟主: 360000000,
-          赵老哥: 240000000,
-          宁波桑田路: 180000000,
-          玲珑羽: 150000000,
-          作手新一: 138000000
-        },
-        top_stocks: [
-          { code: '688041', name: '海光信息', netInflow: 142000000 },
-          { code: '300124', name: '汇川技术', netInflow: 126000000 },
-          { code: '600703', name: '三安光电', netInflow: 118000000 },
-          { code: '603986', name: '兆易创新', netInflow: 96000000 },
-          { code: '300327', name: '中颖电子', netInflow: 83000000 }
-        ],
-        hot_concepts: {
-          东数西算: 9,
-          AI服务器: 8,
-          光模块: 7,
-          特高压: 6,
-          新能源车: 6,
-          Chiplet: 5
-        }
-      }
-    },
-    scoring_ranking: [
-      {
-        rank: 1,
-        name: '海光信息',
-        code: '688041',
-        score: 92.5,
-        eliteSeats: 3,
-        buySeats: 5,
-        orgInvolved: '是',
-        netInflow: 142000000
-      },
-      {
-        rank: 2,
-        name: '兆易创新',
-        code: '603986',
-        score: 90.1,
-        eliteSeats: 2,
-        buySeats: 5,
-        orgInvolved: '否',
-        netInflow: 118000000
-      },
-      {
-        rank: 3,
-        name: '中际旭创',
-        code: '300308',
-        score: 87.6,
-        eliteSeats: 2,
-        buySeats: 4,
-        orgInvolved: '是',
-        netInflow: 102000000
-      },
-      {
-        rank: 4,
-        name: '汇川技术',
-        code: '300124',
-        score: 85.8,
-        eliteSeats: 1,
-        buySeats: 4,
-        orgInvolved: '否',
-        netInflow: 96000000
-      },
-      {
-        rank: 5,
-        name: '三安光电',
-        code: '600703',
-        score: 84.2,
-        eliteSeats: 1,
-        buySeats: 3,
-        orgInvolved: '是',
-        netInflow: 92000000
-      }
-    ],
-    recommended_stocks: [
-      {
-        rank: 1,
-        code: '688041',
-        name: '海光信息',
-        netInflow: 142000000,
-        youzi: '章盟主',
-        youziStyle: '超强趋势打板',
-        tags: ['算力', '东数西算'],
-        confidence: '高',
-        holdPeriod: 'T+3',
-        reason: '连板+顶级游资二次加仓，北向资金同步吸筹，AI 服务器链条高景气。',
-        risk: '需关注美股科技波动及情绪退潮风险。',
-        targetPrice: '108 元',
-        stopLoss: '88 元'
-      },
-      {
-        rank: 2,
-        code: '603986',
-        name: '兆易创新',
-        netInflow: 118000000,
-        youzi: '赵老哥',
-        youziStyle: '高低切换',
-        tags: ['存储芯片', '国产替代'],
-        confidence: '中高',
-        holdPeriod: '5 个交易日',
-        reason: 'HBM 产业链景气延续，游资与机构共振，量价齐升。',
-        risk: '短线涨幅较大，谨防高位回撤。',
-        targetPrice: '165 元',
-        stopLoss: '142 元'
-      },
-      {
-        rank: 3,
-        code: '300327',
-        name: '中颖电子',
-        netInflow: 83000000,
-        youzi: '宁波桑田路',
-        youziStyle: '打板接力',
-        tags: ['MCU', '汽车电子'],
-        confidence: '中',
-        holdPeriod: 'T+2',
-        reason: '国产 MCU 催化不断，游资集中度高，换手健康。',
-        risk: '基本面兑现节奏需跟踪订单数据。',
-        targetPrice: '75 元',
-        stopLoss: '62 元'
-      }
-    ],
-    agents_analysis: {
-      youzi: {
-        agent_name: '🎯 游资行为分析师',
-        agent_role: '识别活跃游资及其操作风格',
-        focus_areas: ['顶级游资', '席位动向'],
-        timestamp,
-        analysis: '章盟主、赵老哥、宁波桑田路三大席位集中在算力与半导体方向，偏好高流动性标的，整体进攻欲望较强。'
-      },
-      stock: {
-        agent_name: '📈 个股潜力分析师',
-        agent_role: '挖掘潜力股与次日大概率上涨标的',
-        focus_areas: ['净流入', '量价结构'],
-        timestamp,
-        analysis: '海光信息、兆易创新等龙头具备游资+机构共振，且量能持续放大，预期短线仍有冲高空间。'
-      },
-      theme: {
-        agent_name: '🔥 题材追踪分析师',
-        agent_role: '识别热点题材及持续性',
-        focus_areas: ['算力', '东数西算', '新能源'],
-        timestamp,
-        analysis: '算力+AI 服务器为绝对主线，东数西算、特高压等题材提供支撑，短期尚未出现明确分歧。'
-      },
-      risk: {
-        agent_name: '⚠️ 风险控制专家',
-        agent_role: '识别风险事件与出货信号',
-        focus_areas: ['游资出货', '高位筹码'],
-        timestamp,
-        analysis: '部分高位题材股存在游资轮动出货迹象，建议控制杠杆、分批止盈，谨防情绪高点回落。'
-      },
-      chief: {
-        agent_name: '👔 首席策略师',
-        agent_role: '综合所有分析师观点给出操作策略',
-        focus_areas: ['仓位策略', '题材轮动'],
-        timestamp,
-        analysis: '维持进攻为主、滚动低吸策略，主线仍在算力+半导体，辅以新能源电力等防守组合。'
-      }
-    },
-    saved_report: {
-      id: 1001
-    }
-  }
-}
-
-const createFallbackHistory = () => {
-  const baseResult = createFallbackResult()
-  return [
-    {
-      id: 501,
-      summary: '游资继续围绕 AI 算力主线轮动，章盟主与北向共振买入海光信息，建议保持进攻节奏。',
-      data_date_range: '2024-11-24 ~ 2024-11-26',
-      created_at: '2024-11-26 18:05',
-      confidence_score: 0.82,
-      market_outlook: '乐观',
-      analysis_content: baseResult
-    },
-    {
-      id: 498,
-      summary: '新能源链条获北上资金加仓，特高压与汽车电子迎来二线补涨机会。',
-      data_date_range: '2024-11-21 ~ 2024-11-23',
-      created_at: '2024-11-23 18:02',
-      confidence_score: 0.75,
-      market_outlook: '中性偏多',
-      analysis_content: {
-        ...baseResult,
-        timestamp: '2024-11-23 18:02'
-      }
-    }
-  ]
-}
-
-const createFallbackStats = () => ({
-  summary: {
-    total_records: 3520,
-    total_stocks: 910,
-    total_youzi: 248,
-    total_reports: 162,
-    date_range: {
-      start: '2024-01-02',
-      end: dayjs().format('YYYY-MM-DD')
-    }
-  },
-  top_youzi: [
-    { name: '章盟主', trade_count: 42, net_inflow: 1240000000 },
-    { name: '赵老哥', trade_count: 35, net_inflow: 980000000 },
-    { name: '宁波桑田路', trade_count: 31, net_inflow: 860000000 },
-    { name: '华泰江阴人民路', trade_count: 28, net_inflow: 720000000 }
-  ],
-  top_stocks: [
-    { code: '688041', name: '海光信息', youzi_count: 15, net_inflow: 520000000 },
-    { code: '300750', name: '宁德时代', youzi_count: 12, net_inflow: 460000000 },
-    { code: '603986', name: '兆易创新', youzi_count: 11, net_inflow: 430000000 },
-    { code: '601012', name: '隆基绿能', youzi_count: 9, net_inflow: 390000000 }
-  ],
-  scoreboard: createFallbackResult().scoring_ranking
-})
-
 export default {
   name: 'LonghubangIndex',
   data() {
     return {
       modelOptions: MODEL_OPTIONS,
       selectedModel: MODEL_OPTIONS[0].value,
+      // WebSocket 相关
+      websocket: null,
+      taskId: null,
+      analysisProgress: 0,
+      analysisMessage: '准备开始分析...',
+      analysisLogs: [],
       analysisMode: 'date',
-      selectedDate: dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
+      selectedDateObj: dayjs().subtract(1, 'day').format('YYYY-MM-DD'),
       recentDays: 1,
       analysisLoading: false,
       analysisResult: null,
@@ -674,10 +520,29 @@ export default {
   created() {
     this.loadHistory()
     this.loadStats()
+    // 检查是否有正在执行的任务
+    this.checkPendingTask()
+  },
+  beforeDestroy() {
+    // 组件销毁时不关闭 WebSocket，保持任务继续执行
+    // 但要移除事件监听，避免内存泄漏
+    if (this.websocket) {
+      // 保存当前状态到 localStorage
+      this.saveTaskState()
+    }
   },
   methods: {
     disableFutureDate(date) {
       return date.getTime() > Date.now()
+    },
+    renderMarkdown(text) {
+      if (!text) return ''
+      try {
+        return marked(text)
+      } catch (e) {
+        console.warn('Markdown 渲染失败:', e)
+        return text
+      }
     },
     formatCurrency(value) {
       const num = Number(value)
@@ -718,29 +583,282 @@ export default {
         netInflow: Number(item.netInflow ?? item['净流入'] ?? 0)
       }))
     },
-    async handleAnalyze() {
-      this.analysisLoading = true
+    generateTaskId() {
+      return 'lhb_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9)
+    },
+    // 任务状态持久化相关方法
+    getTaskStorageKey() {
+      return 'longhubang_pending_task'
+    },
+    saveTaskState() {
+      if (!this.taskId || !this.analysisLoading) return
+      const state = {
+        taskId: this.taskId,
+        progress: this.analysisProgress,
+        message: this.analysisMessage,
+        logs: this.analysisLogs.slice(-20), // 只保存最近20条日志
+        startTime: Date.now(),
+        params: {
+          model: this.selectedModel,
+          mode: this.analysisMode,
+          date: this.selectedDateObj,
+          days: this.recentDays
+        }
+      }
+      localStorage.setItem(this.getTaskStorageKey(), JSON.stringify(state))
+      console.log('[龙虎榜] 任务状态已保存:', state.taskId)
+    },
+    loadTaskState() {
       try {
-        const payload = { model: this.selectedModel }
+        const stateStr = localStorage.getItem(this.getTaskStorageKey())
+        if (!stateStr) return null
+        const state = JSON.parse(stateStr)
+        // 检查任务是否超时（超过30分钟认为已失效）
+        if (Date.now() - state.startTime > 30 * 60 * 1000) {
+          this.clearTaskState()
+          return null
+        }
+        return state
+      } catch (e) {
+        console.warn('[龙虎榜] 加载任务状态失败:', e)
+        return null
+      }
+    },
+    clearTaskState() {
+      localStorage.removeItem(this.getTaskStorageKey())
+      console.log('[龙虎榜] 任务状态已清除')
+    },
+    async checkPendingTask() {
+      const state = this.loadTaskState()
+      if (!state) return
+
+      console.log('[龙虎榜] 发现未完成的任务:', state.taskId)
+
+      // 恢复任务状态
+      this.taskId = state.taskId
+      this.analysisProgress = state.progress
+      this.analysisMessage = state.message || '正在恢复任务...'
+      this.analysisLogs = state.logs || []
+      this.analysisLoading = true
+
+      // 恢复参数
+      if (state.params) {
+        this.selectedModel = state.params.model || this.selectedModel
+        this.analysisMode = state.params.mode || this.analysisMode
+        this.selectedDateObj = state.params.date || this.selectedDateObj
+        this.recentDays = state.params.days || this.recentDays
+      }
+
+      this.addLog('info', '检测到未完成的分析任务，正在恢复...')
+
+      // 尝试重新连接 WebSocket
+      try {
+        await this.connectWebSocket(this.taskId)
+        this.addLog('info', '已重新连接到分析任务')
+      } catch (error) {
+        console.warn('[龙虎榜] 重新连接失败，任务可能已完成或失败:', error)
+        this.addLog('warning', '无法重新连接，任务可能已完成')
+        // 清除任务状态，允许开始新任务
+        this.clearTaskState()
+        this.analysisLoading = false
+        this.taskId = null
+        // 刷新历史记录，可能任务已完成
+        this.loadHistory()
+      }
+    },
+    cancelTask() {
+      this.$confirm('确定要取消当前分析任务吗？', '提示', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        this.closeWebSocket()
+        this.clearTaskState()
+        this.analysisLoading = false
+        this.taskId = null
+        this.analysisProgress = 0
+        this.analysisMessage = ''
+        this.analysisLogs = []
+        this.$message.info('已取消分析任务')
+      }).catch(() => {})
+    },
+    getWebSocketUrl(taskId) {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const host = window.location.host
+      // 开发环境使用后端端口
+      const wsHost = process.env.NODE_ENV === 'development' ? 'localhost:8000' : host
+      return `${protocol}//${wsHost}/api/v1/longhubang/ws/${taskId}`
+    },
+    addLog(level, message) {
+      const time = dayjs().format('HH:mm:ss')
+      this.analysisLogs.push({ level, message, time })
+      // 保持最多50条日志
+      if (this.analysisLogs.length > 50) {
+        this.analysisLogs.shift()
+      }
+      // 滚动到底部
+      this.$nextTick(() => {
+        const container = this.$refs.logsContainer
+        if (container) {
+          container.scrollTop = container.scrollHeight
+        }
+      })
+    },
+    connectWebSocket(taskId) {
+      return new Promise((resolve, reject) => {
+        const wsUrl = this.getWebSocketUrl(taskId)
+        this.addLog('info', `正在连接 WebSocket: ${wsUrl}`)
+
+        this.websocket = new WebSocket(wsUrl)
+
+        this.websocket.onopen = () => {
+          this.addLog('info', 'WebSocket 连接成功')
+          resolve()
+        }
+
+        this.websocket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data)
+            this.handleWebSocketMessage(data)
+          } catch (e) {
+            console.warn('WebSocket 消息解析失败', e)
+          }
+        }
+
+        this.websocket.onerror = (error) => {
+          this.addLog('error', 'WebSocket 连接错误')
+          console.error('WebSocket error:', error)
+          reject(error)
+        }
+
+        this.websocket.onclose = () => {
+          this.addLog('info', 'WebSocket 连接已关闭')
+          this.websocket = null
+        }
+
+        // 5秒超时
+        setTimeout(() => {
+          if (this.websocket && this.websocket.readyState !== WebSocket.OPEN) {
+            reject(new Error('WebSocket 连接超时'))
+          }
+        }, 5000)
+      })
+    },
+    handleWebSocketMessage(data) {
+      switch (data.type) {
+        case 'progress':
+          this.analysisProgress = data.progress || 0
+          this.analysisMessage = data.message || ''
+          if (data.stage) {
+            this.addLog('info', `[${data.stage}] ${data.message}`)
+          }
+          // 定期保存任务状态
+          this.saveTaskState()
+          break
+        case 'log':
+          this.addLog(data.level || 'info', data.message || '')
+          break
+        case 'complete':
+          // 任务完成，清除持久化状态
+          this.clearTaskState()
+          if (data.success && data.result) {
+            this.analysisResult = this.decorateResult(data.result)
+            this.$message.success('龙虎榜分析完成')
+          } else {
+            this.$message.error(data.error || '分析失败')
+            this.addLog('error', data.error || '分析失败')
+          }
+          this.analysisLoading = false
+          this.taskId = null
+          this.closeWebSocket()
+          // 刷新历史记录
+          this.loadHistory()
+          break
+        case 'pong':
+          // 心跳响应
+          break
+        default:
+          console.log('未知消息类型:', data)
+      }
+    },
+    closeWebSocket() {
+      if (this.websocket) {
+        this.websocket.close()
+        this.websocket = null
+      }
+    },
+    async handleAnalyze() {
+      // 检查是否有正在执行的任务
+      if (this.analysisLoading && this.taskId) {
+        this.$message.warning('当前有分析任务正在执行，请等待完成或取消后再试')
+        return
+      }
+
+      this.analysisLoading = true
+      this.analysisProgress = 0
+      this.analysisMessage = '准备开始分析...'
+      this.analysisLogs = []
+
+      // 生成任务ID
+      this.taskId = this.generateTaskId()
+
+      try {
+        // 先尝试使用 WebSocket 异步分析
+        await this.connectWebSocket(this.taskId)
+
+        // 保存任务状态
+        this.saveTaskState()
+
+        // 构建请求参数
+        const payload = {
+          model: this.selectedModel,
+          task_id: this.taskId
+        }
         if (this.analysisMode === 'date') {
-          payload.date = this.selectedDate || dayjs().subtract(1, 'day').format('YYYY-MM-DD')
+          payload.date = this.selectedDateObj || dayjs().subtract(1, 'day').format('YYYY-MM-DD')
         } else {
           payload.days = this.recentDays
         }
-        const res = await analyzeLonghubang(payload)
-        const data = res?.data || res?.result || res
-        if (data?.success) {
-          this.analysisResult = this.decorateResult(data)
-          this.$message.success('龙虎榜分析完成')
-        } else {
-          throw new Error(data?.error || '分析失败')
+
+        // 调用异步分析接口
+        const { analyzeAsyncLonghubang } = await import('@/api/longhubang')
+        const res = await analyzeAsyncLonghubang(payload)
+        const data = res?.data || res
+
+        if (data?.status !== 'started') {
+          throw new Error(data?.message || '启动分析失败')
         }
+
+        this.addLog('info', '分析任务已启动，等待结果...')
+        // 分析结果会通过 WebSocket 推送
+
       } catch (error) {
-        console.warn('analyzeLonghubang fallback', error)
-        this.analysisResult = createFallbackResult()
-        this.$message.info('接口暂未打通，展示示例分析结果')
-      } finally {
-        this.analysisLoading = false
+        console.warn('WebSocket 分析失败，回退到同步模式', error)
+        this.closeWebSocket()
+        this.addLog('warning', '回退到同步分析模式...')
+
+        // 回退到同步分析
+        try {
+          const payload = { model: this.selectedModel }
+          if (this.analysisMode === 'date') {
+            payload.date = this.selectedDateObj || dayjs().subtract(1, 'day').format('YYYY-MM-DD')
+          } else {
+            payload.days = this.recentDays
+          }
+          const res = await analyzeLonghubang(payload)
+          const data = res?.data || res?.result || res
+          if (data?.success) {
+            this.analysisResult = this.decorateResult(data)
+            this.$message.success('龙虎榜分析完成')
+          } else {
+            throw new Error(data?.error || '分析失败')
+          }
+        } catch (syncError) {
+          console.error('分析失败', syncError)
+          this.$message.error(syncError.message || '分析请求失败，请检查后端服务')
+        } finally {
+          this.analysisLoading = false
+        }
       }
     },
     decorateResult(result) {
@@ -760,13 +878,15 @@ export default {
     async loadHistory() {
       this.historyLoading = true
       try {
-        const res = await getLonghubangHistory()
-        const list = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : []
-        this.historyList = list.length ? list : createFallbackHistory()
+        const res = await getLonghubangHistory({ page: 1, page_size: 50 })
+        // 后端返回格式: { code: 200, data: { items: [...], total: N } }
+        const data = res?.data || res
+        const list = Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []
+        this.historyList = list
       } catch (error) {
-        console.warn('getLonghubangHistory fallback', error)
-        this.historyList = createFallbackHistory()
-        this.$message.info('历史报告接口未连通，展示示例记录')
+        console.error('获取历史报告失败', error)
+        this.historyList = []
+        this.$message.error('获取历史报告失败')
       } finally {
         this.historyLoading = false
       }
@@ -776,6 +896,7 @@ export default {
         this.$message.error('该报告缺少分析内容')
         return
       }
+    
       this.analysisResult = this.decorateResult(item.analysis_content)
       this.activeTab = 'analysis'
       this.$message.success(`已加载报告 #${item.id}`)
@@ -783,22 +904,89 @@ export default {
     async loadStats() {
       this.statsLoading = true
       try {
-        const res = await getLonghubangScoring({ limit: 20 })
-        const list = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : []
-        const normalized = list.length ? this.normalizeScoring(list) : null
-        const fallback = createFallbackStats()
-        this.statsScoreboard = normalized || fallback.scoreboard
-        this.statsSummary = fallback.summary
-        this.statsTopYouzi = fallback.top_youzi
-        this.statsTopStocks = fallback.top_stocks
+        // 计算日期范围（近30天）
+        const endDate = dayjs().format('YYYY-MM-DD')
+        const startDate = dayjs().subtract(30, 'day').format('YYYY-MM-DD')
+
+        console.log('[龙虎榜统计] 开始加载数据，日期范围:', startDate, '~', endDate)
+
+        // 并行请求统计数据、评分排名、活跃游资、热门股票
+        const [statsRes, scoringRes, youziRes, stocksRes] = await Promise.allSettled([
+          getLonghubangStatistics(),
+          getLonghubangScoring({ limit: 20 }),
+          getTopYouzi({ start_date: startDate, end_date: endDate, limit: 20 }),
+          getTopStocks({ start_date: startDate, end_date: endDate, limit: 20 })
+        ])
+
+        // 处理统计数据
+        // 注意：request.js 拦截器已经返回 res.data，所以 value 直接就是数据
+        if (statsRes.status === 'fulfilled') {
+          const data = statsRes.value
+          console.log('[龙虎榜统计] 统计数据:', data)
+          this.statsSummary = data || null
+        } else {
+          console.warn('[龙虎榜统计] 获取统计数据失败:', statsRes.reason)
+          this.statsSummary = null
+        }
+
+        // 处理评分排名
+        if (scoringRes.status === 'fulfilled') {
+          const data = scoringRes.value
+          console.log('[龙虎榜统计] 评分数据:', data)
+          const list = Array.isArray(data?.items) ? data.items : []
+          this.statsScoreboard = this.normalizeScoring(list)
+        } else {
+          console.warn('[龙虎榜统计] 获取评分数据失败:', scoringRes.reason)
+          this.statsScoreboard = []
+        }
+
+        // 处理活跃游资
+        if (youziRes.status === 'fulfilled') {
+          const data = youziRes.value
+          console.log('[龙虎榜统计] 游资数据:', data)
+          const items = Array.isArray(data?.items) ? data.items : []
+          this.statsTopYouzi = items.map(item => {
+            const netInflowValue = item.total_net_inflow ?? item.net_inflow ?? 0
+            return {
+              name: item.youzi_name || item.name || '--',
+              trade_count: Number(item.trade_count) || 0,
+              net_inflow: Number(netInflowValue) || 0
+            }
+          })
+        } else {
+          console.warn('[龙虎榜统计] 获取游资数据失败:', youziRes.reason)
+          this.statsTopYouzi = []
+        }
+
+        // 处理热门股票
+        if (stocksRes.status === 'fulfilled') {
+          const data = stocksRes.value
+          console.log('[龙虎榜统计] 股票数据:', data)
+          const items = Array.isArray(data?.items) ? data.items : []
+          this.statsTopStocks = items.map(item => {
+            // 数据库返回字段是 total_net_inflow
+            const netInflowValue = item.total_net_inflow ?? item.net_inflow ?? 0
+            console.log('[龙虎榜统计] 股票净流入:', item.stock_name, netInflowValue, item)
+            return {
+              code: item.stock_code || item.code || '--',
+              name: item.stock_name || item.name || '--',
+              youzi_count: Number(item.youzi_count) || 0,
+              net_inflow: Number(netInflowValue) || 0
+            }
+          })
+        } else {
+          console.warn('[龙虎榜统计] 获取股票数据失败:', stocksRes.reason)
+          this.statsTopStocks = []
+        }
+
+        console.log('[龙虎榜统计] 数据加载完成')
       } catch (error) {
-        console.warn('getLonghubangScoring fallback', error)
-        const fallback = createFallbackStats()
-        this.statsScoreboard = fallback.scoreboard
-        this.statsSummary = fallback.summary
-        this.statsTopYouzi = fallback.top_youzi
-        this.statsTopStocks = fallback.top_stocks
-        this.$message.info('统计接口未准备好，展示示例数据')
+        console.error('[龙虎榜统计] 加载失败:', error)
+        this.statsScoreboard = []
+        this.statsSummary = null
+        this.statsTopYouzi = []
+        this.statsTopStocks = []
+        this.$message.error('加载统计数据失败，请检查后端服务')
       } finally {
         this.statsLoading = false
       }
@@ -808,7 +996,8 @@ export default {
         this.$message.info('暂仅支持导出 PDF')
         return
       }
-      const reportId = this.analysisResult?.saved_report?.id
+      // 兼容多种字段名: report_id, saved_report.id
+      const reportId = this.analysisResult?.report_id || this.analysisResult?.saved_report?.id
       if (!reportId) {
         this.$message.warning('请先完成一次分析以生成报告')
         return
@@ -1037,9 +1226,89 @@ export default {
     }
 
     .focus,
-    .timestamp,
-    .analysis-text {
+    .timestamp {
       line-height: 1.7;
+    }
+
+    .analysis-content-md {
+      line-height: 1.8;
+      color: #303133;
+
+      :deep(h1),
+      :deep(h2),
+      :deep(h3),
+      :deep(h4) {
+        margin: 16px 0 8px;
+        font-weight: 600;
+        color: #1f2937;
+      }
+
+      :deep(h1) { font-size: 1.5em; }
+      :deep(h2) { font-size: 1.3em; }
+      :deep(h3) { font-size: 1.15em; }
+      :deep(h4) { font-size: 1em; }
+
+      :deep(p) {
+        margin: 8px 0;
+      }
+
+      :deep(ul),
+      :deep(ol) {
+        margin: 8px 0;
+        padding-left: 24px;
+      }
+
+      :deep(li) {
+        margin: 4px 0;
+      }
+
+      :deep(strong) {
+        font-weight: 600;
+        color: #1f2937;
+      }
+
+      :deep(em) {
+        font-style: italic;
+      }
+
+      :deep(code) {
+        background: #f3f4f6;
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'Monaco', 'Menlo', monospace;
+        font-size: 0.9em;
+      }
+
+      :deep(blockquote) {
+        margin: 12px 0;
+        padding: 8px 16px;
+        border-left: 4px solid #667eea;
+        background: #f8f9fa;
+        color: #606266;
+      }
+
+      :deep(table) {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0;
+
+        th, td {
+          border: 1px solid #e4e7ed;
+          padding: 8px 12px;
+          text-align: left;
+        }
+
+        th {
+          background: #f5f7fa;
+          font-weight: 600;
+        }
+      }
+
+      :deep(hr) {
+        border: none;
+        border-top: 1px solid #e4e7ed;
+        margin: 16px 0;
+      }
     }
   }
 
@@ -1075,6 +1344,107 @@ export default {
     .history-actions {
       display: flex;
       justify-content: flex-end;
+    }
+  }
+
+  // 进度显示样式
+  .progress-section {
+    margin-bottom: 20px;
+
+    .progress-card {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      padding: 20px;
+
+      .progress-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+
+        .progress-title {
+          font-size: 16px;
+          font-weight: 600;
+        }
+
+        .progress-percent {
+          font-size: 24px;
+          font-weight: bold;
+        }
+      }
+
+      .task-id {
+        font-size: 11px;
+        opacity: 0.7;
+        margin: 4px 0 0;
+        font-family: 'Monaco', 'Menlo', monospace;
+      }
+
+      .progress-message {
+        margin: 12px 0 0;
+        font-size: 14px;
+        opacity: 0.95;
+      }
+
+      .progress-logs {
+        margin-top: 16px;
+        background: rgba(0, 0, 0, 0.2);
+        border-radius: 8px;
+        padding: 12px;
+
+        .logs-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 8px;
+          font-size: 13px;
+          opacity: 0.9;
+        }
+
+        .logs-container {
+          max-height: 200px;
+          overflow-y: auto;
+          font-family: 'Monaco', 'Menlo', monospace;
+          font-size: 12px;
+
+          &::-webkit-scrollbar {
+            width: 6px;
+          }
+
+          &::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 3px;
+          }
+
+          .log-item {
+            margin: 4px 0;
+            padding: 2px 0;
+            display: flex;
+            gap: 8px;
+
+            .log-time {
+              opacity: 0.7;
+              flex-shrink: 0;
+            }
+
+            .log-text {
+              word-break: break-all;
+            }
+
+            &.log-info {
+              color: #fff;
+            }
+
+            &.log-warning {
+              color: #ffd93d;
+            }
+
+            &.log-error {
+              color: #ff6b6b;
+            }
+          }
+        }
+      }
     }
   }
 }
