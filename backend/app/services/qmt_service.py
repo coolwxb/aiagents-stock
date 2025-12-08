@@ -473,8 +473,9 @@ class QMTService:
                 order_remark=f'买入{stock_code}'
             )
             
+            # order_stock 返回: 成功时返回大于0的正整数, 失败时返回-1
             if order_id > 0:
-                self.logger.info(f"买入订单已提交: {stock_code}, 数量: {quantity}, 订单号: {order_id}")
+                print(f"买入订单已提交: {stock_code}, 数量: {quantity}, 订单号: {order_id}")
                 return {
                     'success': True,
                     'order_id': order_id,
@@ -485,16 +486,18 @@ class QMTService:
                     'message': '买入订单已提交'
                 }
             else:
+                print(f"买入订单失败: {stock_code}, 数量: {quantity}, 订单号: {order_id}")
                 return {
                     'success': False,
                     'error': f'下单失败，订单号: {order_id}'
                 }
-                
         except Exception as e:
-            self.logger.error(f"买入股票失败 {stock_code}: {e}")
+           
+            print(f"买入股票失败 {stock_code}: {e}, 错误信息: {e}")
             return {
-                'success': False,
+                'success': False,   
                 'error': str(e)
+        
             }
     
     def sell_stock(self, stock_code: str, quantity: int, 

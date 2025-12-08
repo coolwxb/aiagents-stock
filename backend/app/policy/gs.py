@@ -95,85 +95,47 @@ def compute_g_buy_sell(df):
 # =============================================================
 # ⭐ XTQUANT 获取历史 K 线
 # =============================================================
-def load_xtquant_kline(stock_code, end_date, period='1d', count=200):
+def load_xtquant_kline(stock_code, start_date,end_date, period='1d', count=200):
     """
     stock_code: 如 '600000.SH'
+    start_date: '2024-12-31'
     end_date: '2024-12-31'
+    period: '1d'
+    count: k线数量，默认200
     """
     # 将日期格式转换为YYYYMMDD
     if '-' in end_date:
         end_date_yyyymmdd = end_date.replace('-', '')
     else:
         end_date_yyyymmdd = end_date
-    xtdata.subscribe_quote(stock_code, period='1d', start_time='', end_time=end_date_yyyymmdd, count=0, callback=None)
-    
-    # 使用get_market_data_ex方法获取数据
-    data = xtdata.get_market_data_ex(
-        field_list=["time", "open", "high", "low", "close", "volume"],
-        stock_list=[stock_code],
-        period=period,
-        end_time=end_date_yyyymmdd,
-        count=count,
-        dividend_type='none'
-    )
-    print(data)
-    
-    # 检查是否有数据返回
-    if not data or stock_code not in data:
-        print(f"未能获取到股票 {stock_code} 的数据，正在尝试下载历史数据...")
-     
-        # 下载历史数据
-        xtdata.download_history_data(stock_code, period, '20250101', end_date_yyyymmdd)
-        print(f"历史数据下载完成，重新获取数据...")
-        
-        # 重新获取数据
-        data = xtdata.get_market_data(
-            field_list=["time", "open", "high", "low", "close", "volume"],
-            stock_list=[stock_code],
-            period=period,
-            end_time=end_date_yyyymmdd,
-            count=count,
-            dividend_type='none'
-        )
-        
-        # 再次检查是否有数据返回
-        if not data or stock_code not in data:
-            print(f"即使下载了历史数据，仍然未能获取到股票 {stock_code} 的数据")
-            return pd.DataFrame()  # 返回空的DataFrame
-        else:
-            print(f"重新获取数据成功，数据包含股票: {list(data.keys())}")
-    
-    # 添加调试信息
-    stock_data = data[stock_code]
-    print(f"数据列名: {list(stock_data.columns)}")
-    print(f"原始数据条数: {len(stock_data)}")
-    if stock_data.empty:
-        print("警告: 获取到的数据是空的")
-        return pd.DataFrame()  # 返回空的DataFrame而不是继续处理
-    
+    if '-' in start_date:
+        start_date_yyyymmdd = start_date.replace('-', '')
+    else:
+        start_date_yyyymmdd = start_date
+    from app.data.data_source import data_source_manager
+    stock_data = data_source_manager.get_stock_hist_data(stock_code,period,start_date=start_date_yyyymmdd,end_date= end_date_yyyymmdd,count=200)
+    if stock_data is None:
+        print(f"警告: 获取到的数据是空的")
+        return pd.DataFrame()
+
     # 提取数据并创建DataFrame
-    stock_data = data[stock_code]
     df = pd.DataFrame({
         "open": stock_data["open"].values,
         "high": stock_data["high"].values,
         "low": stock_data["low"].values,
         "close": stock_data["close"].values,
         "volume": stock_data["volume"].values,
-        "time": stock_data["time"].values,
+        "time": stock_data["date"].values,
     })
 
     # 使用日期列作为索引，因为它更符合用户的预期
-    date_values = stock_data.index.values
+    date_values = stock_data["date"].values
     print(f"前5个日期值: {date_values[:5]}")
     print(f"后5个日期值: {date_values[-5:]}")
     
     # 将日期字符串转换为日期时间索引
     df.index = pd.to_datetime(date_values, format='%Y%m%d')
     
-    print(f"解析后的时间范围: {df.index.min()} 到 {df.index.max()}")
-    
-    # 确保数据包含截止日期
-    print(f"请求的截止日期: {end_date_yyyymmdd}")
     return df
 
 

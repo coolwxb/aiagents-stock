@@ -63,8 +63,8 @@ async def lifespan(app: FastAPI):
         config_dict = {cfg.key: cfg.value for cfg in configs}
         
         # 初始化数据源管理器
-        from app.data.data_source_manager import get_data_source_manager
-        data_source_manager = get_data_source_manager(config_dict)
+        from app.data.data_source import data_source_manager
+        data_source_manager.load_config(config_dict)
         print("✅ 数据源管理器初始化完成")
         
         # 初始化QMT服务

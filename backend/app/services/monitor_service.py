@@ -14,8 +14,9 @@ import os
 
 from app.models.monitor import MonitorTask
 from app.agents.deepseek_client import DeepSeekClient
-from app.data.stock_data import StockDataFetcher
 from app.services.qmt_service import qmt_service
+from app.services.notification_service import get_notification_service
+from app.data.data_source import data_source_manager
 
 
 class MonitorService:
@@ -43,10 +44,13 @@ class MonitorService:
             MonitorService._deepseek_client = DeepSeekClient()
             
             # 初始化数据获取模块（使用 backend 的 StockDataFetcher）
-            MonitorService._data_fetcher = StockDataFetcher()
+            MonitorService._data_fetcher = data_source_manager
             
             # 从数据库加载QMT配置
             qmt_service.load_config(self.db)
+            
+            # 从数据库加载通知配置
+            notification_service = get_notification_service(db=self.db)
             
             # 尝试连接QMT（如果启用）
             if qmt_service.enabled and not MonitorService._qmt_connected:
@@ -665,8 +669,12 @@ class MonitorService:
         
         self.logger.info(f"[{stock_code}] 监控循环已退出")
     
-    def _analyze_stock(self, stock_code: str, auto_trade: bool = False,
-                      trading_hours_only: bool = True, strategy: str = 'GS') -> Dict:
+    def _analyze_stock(
+                    self,
+                    stock_code: str, 
+                    auto_trade: bool = False,
+                    trading_hours_only: bool = True,
+                    strategy: str = 'GS') -> Dict:
         """
         分析股票（使用 backend 内部模块）
         
@@ -701,39 +709,49 @@ class MonitorService:
             #         'error': '非交易时段，跳过分析'
             #     }
 
-
-            print(f"strategy: 按照策略{strategy}进行分析")  
-        
-            
+            self.logger.info(f"[{stock_code}] 按照策略{strategy}进行分析")
                 
-                    
-            # 3. 根据策略选择决策逻辑
+            # 获取股票基本信息
+            stock_info = data_source_manager.get_stock_basic_info(stock_code)
+            if not stock_info or stock_info.get('error'):
+                return {
+                    'success': False,
+                    'error': '获取股票信息失败'
+                }
+
+            
+            # 根据任务配置的策略选择决策逻辑
             if (strategy or '').upper() == 'AI':
-                # 2. 获取市场数据（使用 backend 的 StockDataFetcher）
-                if MonitorService._data_fetcher:
-                    # 获取股票基本信息
-                    stock_info = MonitorService._data_fetcher.get_stock_info(stock_code)
-                    print(f"stock_info: {stock_info}")
-                    if not stock_info or stock_info.get('error'):
-                         return {
-                            'success': False,
-                            'error': '获取股票信息失败'
-                        }
-                    
-                    # 获取技术指标
-                    indicators = MonitorService._data_fetcher.get_technical_indicators(stock_code)
-                    decision = self._make_ai_decision(stock_info, indicators)
-                    return {
-                        'success': True,
-                        'stock_code': stock_code,
-                        'stock_name': stock_info.get('name', ''),
-                        'decision': decision,
-                        'market_data': stock_info,
-                        'indicators': indicators
-                        }
+                pass
+                # 获取技术指标
+                # indicators = get_technical_indicators(stock_code)
+                # decision = self._make_ai_decision(stock_code, stock_info, indicators)
             else:
-                decision = self._make_simple_decision(stock_info, indicators)
-                return 
+                decision = self._make_strategy_decision(stock_code)
+            
+            # 4. 执行交易（如果开启自动交易）
+            execution_result = None
+            if auto_trade:
+                execution_result = self._execute_decision(
+                    stock_code=stock_code,
+                    decision=decision,
+                    market_data=stock_info,
+                   
+                )
+            
+            # 5. 发送通知（如果需要）
+            # TODO: 根据任务配置决定是否发送通知
+            self._send_notification(stock_code, stock_info.get('name', ''), decision, execution_result, stock_info)
+            
+            return {
+                'success': True,
+                'stock_code': stock_code,
+                'stock_name': stock_info.get('name', ''),
+                'decision': decision,
+                'market_data': stock_info,
+                'indicators': indicators,
+                'execution_result': execution_result
+            } 
                 
         except Exception as e:
             self.logger.error(f"分析股票失败: {e}")
@@ -742,12 +760,50 @@ class MonitorService:
                 'error': str(e)
             }
     
-    def _make_simple_decision(self, stock_info: Dict, indicators: Dict) -> Dict:
+    def _make_strategy_decision(self, stock_code: str) -> Dict:
         """
-        简单决策逻辑（基于技术指标）
-        正式版本应使用 DeepSeekClient 进行 AI 决策
+        根据策略选择决策逻辑
+        """
+        try:
+            from app.policy.gs import load_xtquant_kline,compute_g_buy_sell
+           
+            kline_df = load_xtquant_kline(stock_code,'', '', period='1d', count=200)
+            out = compute_g_buy_sell(kline_df)
+            # 获取out 最后一条数据的 
+            g_buy = 1
+            # g_buy = out.tail(1)['g_buy']
+            g_sell = out.tail(1)['g_sell']
+            if g_buy == 1:
+                action = 'BUY'
+                confidence = 100
+                reasoning = '策略买入'
+            elif g_sell == 1:
+                action = 'SELL'
+                confidence = 100
+                reasoning = '策略卖出'
+            else :
+                action = 'HOLD'
+                confidence = 50
+                reasoning = '策略持有'
+            return {
+                'action': action,
+                'confidence': confidence,
+                'reasoning': reasoning,
+            }
+        except Exception as e:
+            self.logger.error(f"决策逻辑失败: {e}")
+            return {
+                'action': 'HOLD',
+                'confidence': 50,
+                'reasoning': f'决策失败: {str(e)}',
+            }
+    
+    def _make_ai_decision(self, stock_code: str, stock_info: Dict, indicators: Dict) -> Dict:
+        """
+        AI决策逻辑（使用 DeepSeekClient）
         
         Args:
+            stock_code: 股票代码
             stock_info: 股票信息
             indicators: 技术指标
             
@@ -755,41 +811,392 @@ class MonitorService:
             决策结果
         """
         try:
+            if MonitorService._deepseek_client is None:
+                MonitorService._deepseek_client = DeepSeekClient()
+            
+            # 获取账户信息
+            account_info = qmt_service.get_account_info()
+            
+            # 检查是否已持仓
+            position = qmt_service.get_position(stock_code)
+            has_position = position is not None
+            position_cost = position.get('cost_price', 0) if position else 0
+            position_quantity = position.get('quantity', 0) if position else 0
+            
+            # 构建市场数据（兼容旧接口格式）
+            market_data = {
+                'name': stock_info.get('name', ''),
+                'current_price': stock_info.get('current_price', 0),
+                'change_pct': stock_info.get('change_percent', 0),
+                'volume': stock_info.get('volume', 0),
+                'ma5': indicators.get('ma5', 0),
+                'ma20': indicators.get('ma20', 0),
+                'rsi6': indicators.get('rsi', 50),
+                'macd': indicators.get('macd', 0),
+                **stock_info,
+                **indicators
+            }
+            
+            # 使用 DeepSeekClient 进行技术分析
+            technical_report = MonitorService._deepseek_client.technical_analysis(
+                stock_info, None, indicators
+            )
+            
+            # 简化的AI决策：基于技术分析结果
+            # 注意：这里使用简化的决策逻辑，完整版本应该调用 analyze_stock_and_decide
+            # 但新的 DeepSeekClient 没有这个方法，所以使用技术分析结果进行决策
+            
             current_price = stock_info.get('current_price', 0)
             ma5 = indicators.get('ma5', 0)
             ma20 = indicators.get('ma20', 0)
             rsi = indicators.get('rsi', 50)
             
-            # 简单的技术分析逻辑
-            if current_price > ma5 > ma20 and 30 < rsi < 70:
-                action = 'buy'
-                confidence = 75
-                reasoning = '价格位于均线之上，RSI处于健康区间，建议买入'
-            elif current_price < ma20 or rsi > 70:
-                action = 'sell'
-                confidence = 70
-                reasoning = '价格跌破均线或RSI超买，建议卖出'
+            # 基于技术指标和AI分析结果做决策
+            if has_position:
+                # 有持仓：判断是否卖出
+                if current_price < position_cost * 0.95:  # 止损
+                    action = 'SELL'
+                    confidence = 80
+                    reasoning = f'触发止损，当前价{current_price:.2f}低于成本价{position_cost:.2f}的95%'
+                elif current_price > position_cost * 1.10:  # 止盈
+                    action = 'SELL'
+                    confidence = 75
+                    reasoning = f'达到止盈目标，当前价{current_price:.2f}高于成本价{position_cost:.2f}的10%'
+                elif rsi > 70 or current_price < ma20:
+                    action = 'SELL'
+                    confidence = 70
+                    reasoning = '技术指标显示超买或跌破均线，建议卖出'
+                else:
+                    action = 'HOLD'
+                    confidence = 65
+                    reasoning = '技术面稳定，继续持有'
             else:
-                action = 'hold'
-                confidence = 65
-                reasoning = '市场走势不明确，建议持有观望'
+                # 无持仓：判断是否买入
+                if current_price > ma5 > ma20 and 30 < rsi < 70:
+                    action = 'BUY'
+                    confidence = 75
+                    reasoning = '价格位于均线之上，RSI处于健康区间，技术面支持买入'
+                else:
+                    action = 'HOLD'
+                    confidence = 60
+                    reasoning = '技术信号不明确，建议观望'
             
             return {
                 'action': action,
                 'confidence': confidence,
                 'reasoning': reasoning,
                 'risk_level': 'medium',
-                'position_size_pct': 20
+                'position_size_pct': 20,
+                'stop_loss_pct': 5,
+                'take_profit_pct': 10,
+                'key_price_levels': {
+                    'support': ma20,
+                    'resistance': indicators.get('bb_upper', current_price * 1.1)
+                },
+                'technical_analysis': technical_report[:200] + '...' if len(technical_report) > 200 else technical_report
             }
         except Exception as e:
-            self.logger.error(f"决策逻辑失败: {e}")
+            self.logger.error(f"AI决策失败: {e}")
             return {
-                'action': 'hold',
+                'action': 'HOLD',
                 'confidence': 50,
-                'reasoning': f'决策失败: {str(e)}',
+                'reasoning': f'AI决策失败: {str(e)}',
                 'risk_level': 'high',
                 'position_size_pct': 0
             }
+    
+    def _execute_decision(self, stock_code: str, decision: Dict,
+                         market_data: Dict) -> Dict:
+        """
+        执行AI决策
+        
+        Args:
+            stock_code: 股票代码
+            decision: AI决策
+            market_data: 市场数据
+            
+        Returns:
+            执行结果
+        """
+
+        # 先查找stock_code 的持仓信息
+        position = qmt_service.get_position(stock_code)
+        has_position = position is not None
+   
+        
+        action = decision.get('action', '').upper()
+        
+        try:
+            if action == 'BUY' :
+                # 先判断是否持仓，如果持仓，则不买入
+                if has_position:
+                    return {   
+                        'success': False,
+                        'error': '已持仓，不买入'
+                    }
+                # 买入逻辑
+                return self._execute_buy(stock_code, decision, market_data)
+
+            elif action == 'SELL' and has_position:
+                # 卖出逻辑
+                if has_position: 
+                    # 判断是否可以卖出
+                    can_sell = position.get('can_use_volume', 0)
+                    if can_sell <= 0:
+                        return {
+                            'success': False,
+                            'error': 'T+1限制，今天买入的股票明天才能卖出'
+                        }
+                    
+                return self._execute_sell(stock_code, decision, market_data)
+            
+            elif action == 'HOLD':
+                # 持有，不操作
+                return {
+                    'success': True,
+                    'action': 'HOLD',
+                    'message': 'AI建议持有，未执行交易'
+                }
+            
+            else:
+                return {
+                    'success': False,
+                    'error': f'无效操作: {action} (has_position={has_position})'
+                }
+                
+        except Exception as e:
+            self.logger.error(f"[{stock_code}] 执行交易失败: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _execute_buy(self, stock_code: str, decision: Dict, market_data: Dict) -> Dict:
+        """执行买入"""
+        try:
+            # 获取账户信息
+            account_info = qmt_service.get_account_info()
+            available_cash = account_info.get('cash', 0)
+            
+            if available_cash <= 0:
+                return {
+                    'success': False,
+                    'error': '账户可用资金不足'
+                }
+            
+            # 计算买入金额
+            # position_size_pct = decision.get('buy_amount', 20)
+            # buy_amount = available_cash * (position_size_pct / 100)
+            buy_amount = decision.get('buy_amount', 0)
+            if buy_amount <= 0:
+                return {
+                    'success': False,
+                    'error': '买入金额设置错误'
+                }
+            if buy_amount > available_cash:
+                return {
+                    'success': False,
+                    'error': '买入金额大于账户可用资金'
+                }
+            
+            # 计算买入数量（必须是100的整数倍）
+            stock_quote = qmt_service.get_stock_quote(stock_code)
+            if not stock_quote:
+                return {
+                    'success': False,
+                    'error': '无法获取股票行情'
+                }
+            current_price = stock_quote.get('lastPrice', 0)
+            if current_price <= 0:
+                return {
+                    'success': False,
+                    'error': '股票行情价格为0，无法买入'
+                }
+            quantity = int(buy_amount / current_price / 100) * 100
+            if quantity <= 0:
+                return {
+                    'success': False,
+                    'error': '买入数量计算错误'
+                }            
+            # 执行买入
+            result = qmt_service.buy_stock(
+                stock_code=stock_code,
+                quantity=quantity,
+                price=current_price,
+                order_type='market'
+            )
+            
+            if result.get('success'):
+                self.logger.info(f"[{stock_code}] 买入成功: {quantity}股 @ {current_price:.2f}元")
+            else:
+                self.logger.error(f"[{stock_code}] 买入失败: {result.get('error', '未知错误')}")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"[{stock_code}] 买入失败: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _execute_sell(self, stock_code: str, decision: Dict, market_data: Dict) -> Dict:
+        """执行卖出"""
+        try:
+            # 获取持仓
+            position = qmt_service.get_position(stock_code)
+            if not position:
+                return {
+                    'success': False,
+                    'error': '未持有该股票'
+                }
+
+            # 可卖数量（考虑T+1限制）
+            can_sell = position.get('can_use_volume', 0)
+            if can_sell <= 0:
+                return {
+                    'success': False,
+                    'error': 'T+1限制，今天买入的股票明天才能卖出'
+                }
+            
+            # 执行卖出
+            stock_quote = qmt_service.get_stock_quote(stock_code)
+            if not stock_quote:
+                return {
+                    'success': False,
+                    'error': '无法获取股票行情'
+                }
+            current_price = stock_quote.get('lastPrice', 0)
+            if current_price <= 0:
+                return {
+                    'success': False,
+                    'error': '股票行情价格为0，无法卖出'
+                }
+            
+            result = qmt_service.sell_stock(
+                stock_code=stock_code,
+                quantity=can_sell,
+                price=current_price,
+                order_type='market'
+            )
+            
+            if result.get('success'):
+                # 计算盈亏
+                cost_price = position.get('average_price', 0)
+                if cost_price <= 0:
+                    return {
+                        'success': False,
+                        'error': '持仓成本价格为0，无法计算盈亏'
+                    }
+                profit_loss = (current_price - cost_price) * can_sell
+                
+                self.logger.info(f"[{stock_code}] 卖出成功: {can_sell}股 @ {current_price:.2f}元, "
+                               f"盈亏: {profit_loss:+.2f}元")
+            else:
+                self.logger.error(f"[{stock_code}] 卖出失败: {result.get('error', '未知错误')}")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"[{stock_code}] 卖出失败: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _send_notification(self, stock_code: str, stock_name: str,
+                          decision: Dict, execution_result: Optional[Dict],
+                          market_data: Dict):
+        """
+        发送通知
+        
+        Args:
+            stock_code: 股票代码
+            stock_name: 股票名称
+            decision: AI决策
+            execution_result: 执行结果
+            market_data: 市场数据
+        """
+        try:
+            action = decision.get('action', '').upper()
+            
+            # 仅在买入或卖出时发送通知，持有信号不发送
+            if action not in ['BUY', 'SELL']:
+                self.logger.debug(f"[{stock_code}] 决策为{action}，不发送通知")
+                return
+            
+            # 构建通知内容
+            action_text = {
+                'BUY': '🟢 买入',
+                'SELL': '🔴 卖出'
+            }.get(action, action)
+            
+            message = f"{action_text}信号 - {stock_name}({stock_code})"
+            
+            # 简化的AI决策内容
+            reasoning = decision.get('reasoning', '')
+            reasoning_summary = reasoning[:150] + '...' if len(reasoning) > 150 else reasoning
+            
+            # 提取关键价位信息
+            key_levels = decision.get('key_price_levels', {})
+            support = key_levels.get('support', 'N/A')
+            resistance = key_levels.get('resistance', 'N/A')
+            
+            # 构建详细内容
+            content = f"""【{action_text}信号】{stock_name}({stock_code})
+
+📊 市场信息
+• 当前价: ¥{market_data.get('current_price', 0):.2f}
+• 涨跌幅: {market_data.get('change_percent', 0):+.2f}%
+• 成交量: {market_data.get('volume', 0):,.0f}手
+
+🤖 AI决策
+• 操作: {action_text}
+• 信心度: {decision.get('confidence', 0)}%
+• 风险: {decision.get('risk_level', '中')}
+
+💡 核心理由
+{reasoning_summary}
+
+📈 关键价位
+• 支撑位: {support}
+• 阻力位: {resistance}
+• 止盈: {decision.get('take_profit_pct', 'N/A')}%
+• 止损: {decision.get('stop_loss_pct', 'N/A')}%
+
+📉 技术指标
+• MA5: {market_data.get('ma5', 0):.2f} / MA20: {market_data.get('ma20', 0):.2f}
+• RSI: {market_data.get('rsi', 0):.1f}"""
+            
+            if execution_result:
+                if execution_result.get('success'):
+                    content += f"\n\n✅ 操作已自动执行"
+                else:
+                    content += f"\n\n⚠️ 执行失败: {execution_result.get('error')}"
+            
+            content += f"\n\n⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            
+            # 构建通知数据
+            notification_data = {
+                'symbol': stock_code,
+                'name': stock_name,
+                'type': '智能盯盘',
+                'message': message,
+                'details': content,
+                'triggered_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            # 使用通知服务发送（传入数据库会话以从数据库加载配置）
+            notification_service = get_notification_service(db=self.db)
+            success = notification_service.send_notification(notification_data)
+            
+            if success:
+                self.logger.info(f"[{stock_code}] {action_text}通知已发送")
+            else:
+                self.logger.warning(f"[{stock_code}] {action_text}通知发送失败（可能未配置通知渠道）")
+            
+        except Exception as e:
+            self.logger.error(f"[{stock_code}] 发送通知失败: {e}")
 
     
 
