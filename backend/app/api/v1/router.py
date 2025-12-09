@@ -14,7 +14,8 @@ from app.api.v1 import (
     notification,
     config,
     user,
-    data_management
+    data_management,
+    gs_strategy
 )
 
 api_router = APIRouter()
@@ -32,4 +33,5 @@ api_router.include_router(notification.router, prefix="/notification", tags=["�
 api_router.include_router(config.router, prefix="/config", tags=["配置管理"])
 api_router.include_router(user.router, prefix="/user", tags=["用户管理"])
 api_router.include_router(data_management.router, prefix="/data", tags=["数据管理"])
+api_router.include_router(gs_strategy.router, prefix="/gs-strategy", tags=["GS策略"])
 

@@ -40,7 +40,6 @@ env/
 *.db
 *.sqlite
 *.sqlite3
-data/
 
 # 日志
 *.log

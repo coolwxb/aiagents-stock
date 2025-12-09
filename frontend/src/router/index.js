@@ -242,6 +242,12 @@ export const constantRoutes = [
         component: () => import('@/views/realtime/notifications'),
         meta: { title: '通知历史' },
         hidden: true
+      },
+      {
+        path: 'gs-strategy',
+        name: 'GSStrategyIndex',
+        component: () => import('@/views/gs-strategy/index'),
+        meta: { title: 'GS策略', icon: 'el-icon-s-opportunity' }
       }
     ]
   },

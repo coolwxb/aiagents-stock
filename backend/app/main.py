@@ -63,14 +63,19 @@ async def lifespan(app: FastAPI):
         config_dict = {cfg.key: cfg.value for cfg in configs}
         
         # 初始化数据源管理器
-        from app.data.data_source import data_source_manager
-        data_source_manager.load_config(config_dict)
+        from app.data.data_source import init_source_manager
+        init_source_manager(config_dict)
         print("✅ 数据源管理器初始化完成")
         
         # 初始化QMT服务
         from app.services.qmt_service import qmt_service
         qmt_service.load_config(db)
         print("✅ QMT服务配置加载完成")
+        
+        # 恢复GS策略监控任务
+        from app.services.gs_scheduler import gs_scheduler
+        gs_scheduler.restore_running_monitors()
+        print("✅ GS策略监控任务恢复完成")
         
     except Exception as e:
         print(f"⚠️ 配置加载失败: {e}")
@@ -86,6 +91,14 @@ async def lifespan(app: FastAPI):
     
     # 关闭时清理
     print("\n服务正在关闭...")
+    
+    # 停止所有GS策略监控任务
+    try:
+        from app.services.gs_scheduler import gs_scheduler
+        gs_scheduler.stop_all_monitors()
+        print("✅ GS策略监控任务已停止")
+    except Exception as e:
+        print(f"⚠️ 停止GS策略监控任务失败: {e}")
 
 
 app = FastAPI(
@@ -167,4 +180,3 @@ async def root():
 async def health_check():
     """健康检查"""
     return success_response({"status": "healthy"}, msg="healthy")
-
