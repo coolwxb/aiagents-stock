@@ -126,23 +126,25 @@ class GSStrategyService:
         """
         try:
             # 调用QMT服务获取股票信息
-            stock_info = qmt_service.get_stock_info(stock_code)
-            if not stock_info:
-                raise ValueError(f"未找到股票代码 {stock_code} 的信息")
+            # stock_info = qmt_service.get_stock_info(stock_code)
+            # if not stock_info:
+            #     raise ValueError(f"未找到股票代码 {stock_code} 的信息")
             
-            # QMT返回的字段名为InstrumentName（合约名称）
-            stock_name = stock_info.get('InstrumentName', '')
+            # # QMT返回的字段名为InstrumentName（合约名称）
+            # stock_name = stock_info.get('InstrumentName', '')
             
-            if not stock_name:
-                raise ValueError(f"未找到股票代码 {stock_code} 的名称信息")
-            
+            # if not stock_name:
+            #     raise ValueError(f"未找到股票代码 {stock_code} 的名称信息")
+            from app.utils.qmt_client import qmt_client
+            stock_info = qmt_client.get_stock_basic_info(stock_code)
+            stock_name = stock_info.get('stock_name', '')
             return {
                 'stock_code': stock_code,
                 'stock_name': stock_name,
                 'instrument_id': stock_info.get('InstrumentID', ''),
                 'exchange_id': stock_info.get('ExchangeID', ''),
-                'pre_close': stock_info.get('PreClose'),
-                'is_trading': stock_info.get('IsTrading', False)
+                'pre_close': stock_info.get('pre_close'),
+                'is_trading': stock_info.get('is_trading', False)
             }
         except ValueError:
             raise
@@ -414,11 +416,25 @@ class GSStrategyService:
             持仓信息，包含账户概览和持仓列表
         """
         try:
-            # 获取QMT账户信息
-            account_info = qmt_service.get_account_info()
+            # # 获取QMT账户信息
+            # account_info = qmt_service.get_account_info()
             
-            # 获取QMT持仓列表
-            positions = qmt_service.get_all_positions()
+            # # 获取QMT持仓列表
+            # positions = qmt_service.get_all_positions()
+
+            from app.utils.qmt_client import qmt_client
+
+            try:
+                status = qmt_client.get_status()
+                if status["connected"]==False:
+                    qmt_client.connect()
+            except Exception as e:
+                print(f"获取状态失败: {e}")
+
+            account_info = qmt_client.get_account()
+            print(account_info)
+            positions = qmt_client.get_positions()
+            print(positions)
             
             return {
                 'account_info': {

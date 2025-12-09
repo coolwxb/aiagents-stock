@@ -55,29 +55,26 @@
             {{ formatTime(scope.row.created_at) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" min-width="180" align="center" fixed="right">
+        <el-table-column label="操作" min-width="200" align="center" fixed="right">
           <template slot-scope="scope">
-            <el-button
-              size="mini"
-              type="primary"
-              icon="el-icon-monitor"
-              @click="handleAddToMonitor(scope.row)"
-            >
-              加入监控
-            </el-button>
-            <el-popconfirm
-              title="确认从股票池中移除该股票？"
-              @confirm="handleRemove(scope.row)"
-            >
+            <div class="action-buttons">
               <el-button
-                slot="reference"
+                size="mini"
+                type="primary"
+                icon="el-icon-monitor"
+                @click="handleAddToMonitor(scope.row)"
+              >
+                加入监控
+              </el-button>
+              <el-button
                 size="mini"
                 type="danger"
                 icon="el-icon-delete"
+                @click="confirmRemove(scope.row)"
               >
                 移除
               </el-button>
-            </el-popconfirm>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -249,14 +246,24 @@ export default {
         }
       })
     },
+    confirmRemove(row) {
+      this.$confirm(`确认从股票池中移除 ${row.stock_code} - ${row.stock_name}？`, '提示', {
+        confirmButtonText: '确认',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }).then(() => {
+        this.handleRemove(row)
+      }).catch(() => {})
+    },
     async handleRemove(row) {
       try {
         await removeFromStockPool(row.id)
         this.$message.success('移除成功')
-        this.loadStockPool()
+        await this.loadStockPool()
       } catch (error) {
         console.error('移除失败', error)
-        this.$message.error('移除失败')
+        const msg = error.response?.data?.message || error.response?.data?.detail || '移除失败'
+        this.$message.error(msg)
       }
     },
     handleAddToMonitor(row) {
@@ -276,33 +283,36 @@ export default {
         interval: 300
       }
     },
-    async handleConfirmMonitor() {
-      this.$refs.monitorFormRef.validate(async valid => {
+    handleConfirmMonitor() {
+      this.$refs.monitorFormRef.validate(valid => {
         if (!valid) return
-        this.monitorLoading = true
-        try {
-          // 创建监控任务
-          const res = await createMonitor({
-            stock_id: this.monitorForm.stock_id,
-            interval: this.monitorForm.interval
-          })
-          // 自动启动监控
-          const monitorId = res.data?.id || res?.id
-          if (monitorId) {
-            await startMonitor(monitorId)
-          }
-          this.$message.success('已加入监控并启动')
-          this.monitorDialogVisible = false
-          // 通知父组件切换到监控Tab
-          this.$emit('add-to-monitor', this.monitorForm)
-        } catch (error) {
-          console.error('加入监控失败', error)
-          const msg = error.response?.data?.msg || error.response?.data?.detail || '加入监控失败'
-          this.$message.error(msg)
-        } finally {
-          this.monitorLoading = false
-        }
+        this.doConfirmMonitor()
       })
+    },
+    async doConfirmMonitor() {
+      this.monitorLoading = true
+      try {
+        // 创建监控任务
+        const res = await createMonitor({
+          stock_id: this.monitorForm.stock_id,
+          interval: this.monitorForm.interval
+        })
+        // 自动启动监控
+        const monitorId = res.data?.id || res?.id
+        if (monitorId) {
+          await startMonitor(monitorId)
+        }
+        this.$message.success('已加入监控并启动')
+        this.monitorDialogVisible = false
+        // 通知父组件切换到监控Tab
+        this.$emit('add-to-monitor', this.monitorForm)
+      } catch (error) {
+        console.error('加入监控失败', error)
+        const msg = error.response?.data?.msg || error.response?.data?.detail || '加入监控失败'
+        this.$message.error(msg)
+      } finally {
+        this.monitorLoading = false
+      }
     },
     // 供父组件调用的刷新方法
     refresh() {
@@ -379,5 +389,11 @@ export default {
 .empty-text {
   margin: 0;
   font-size: 14px;
+}
+
+.action-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
 }
 </style>

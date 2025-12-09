@@ -417,3 +417,57 @@ async def get_financial_fields_info(report_type: str):
         return success_response(fields_info)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 历史K线数据 ====================
+
+@router.get("/kline/{stock_code}")
+async def get_stock_kline(
+    stock_code: str,
+    period: str = Query(default="1d", description="K线周期：1m/5m/15m/30m/60m/1d/1w/1M"),
+    start_date: str = Query(default="", description="开始日期，格式：20240101"),
+    end_date: str = Query(default="", description="结束日期，格式：20241231"),
+    count: int = Query(default=200, description="获取数量")
+):
+    """
+    获取股票历史K线数据
+    
+    Args:
+        stock_code: 股票代码（如：600519 或 600519.SH）
+        period: K线周期
+        start_date: 开始日期
+        end_date: 结束日期
+        count: 获取数量
+    
+    Returns:
+        K线数据DataFrame转换的字典
+    """
+    try:
+        from app.data.data_source import data_source_manager
+        
+        df = data_source_manager.get_stock_hist_data(
+            symbol=stock_code,
+            period=period,
+            start_date=start_date,
+            end_date=end_date,
+            count=count
+        )
+        
+        if df is None or df.empty:
+            return success_response(None, msg=f"未找到股票 {stock_code} 的K线数据")
+        
+        # 将DataFrame转换为可序列化的格式
+        result = {
+            "date": df["date"].astype(str).tolist() if "date" in df.columns else [],
+            "open": df["open"].tolist() if "open" in df.columns else [],
+            "high": df["high"].tolist() if "high" in df.columns else [],
+            "low": df["low"].tolist() if "low" in df.columns else [],
+            "close": df["close"].tolist() if "close" in df.columns else [],
+            "volume": df["volume"].tolist() if "volume" in df.columns else [],
+            "amount": df["amount"].tolist() if "amount" in df.columns else [],
+            "count": len(df)
+        }
+        
+        return success_response(result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

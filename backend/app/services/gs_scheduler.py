@@ -14,7 +14,7 @@ import pandas as pd
 from app.database import SessionLocal
 from app.models.gs_strategy import GSMonitorTask, GSTradeHistory
 from app.policy.gs import compute_g_buy_sell, load_xtquant_kline
-from app.services.qmt_service import qmt_service
+# from app.services.qmt_service import qmt_service
 from app.services.notification_service import get_notification_service
 
 
@@ -324,12 +324,14 @@ class GSScheduler:
         buy_quantity = 100  # 1手
         
         # 调用QMT买入接口
-        order_result = qmt_service.buy_stock(
-            stock_code=stock_code,
-            quantity=buy_quantity,
-            price=current_price,
-            order_type='market'
-        )
+        # order_result = qmt_service.buy_stock(
+        #     stock_code=stock_code,
+        #     quantity=buy_quantity,
+        #     price=current_price,
+        #     order_type='market'
+        # )
+        from app.utils.qmt_client import qmt_client
+        order_result = qmt_client.buy(stock_code,buy_quantity,current_price,'market')
         
         if order_result.get('success'):
             order_id = str(order_result.get('order_id', ''))
@@ -408,7 +410,9 @@ class GSScheduler:
         current_price = signal_data.get('close', 0)
         
         # 查询持仓
-        position = qmt_service.get_position(stock_code)
+        # position = qmt_service.get_position(stock_code)
+        from app.utils.qmt_client import qmt_client
+        position = qmt_client.get_position(stock_code)
         
         if not position or position.get('can_sell', 0) <= 0:
             self.logger.warning(f"无可卖持仓: {stock_code}")
@@ -417,12 +421,15 @@ class GSScheduler:
         sell_quantity = position.get('can_sell', 0)
         
         # 调用QMT卖出接口
-        order_result = qmt_service.sell_stock(
-            stock_code=stock_code,
-            quantity=sell_quantity,
-            price=current_price,
-            order_type='market'
-        )
+        # order_result = qmt_service.sell_stock(
+        #     stock_code=stock_code,
+        #     quantity=sell_quantity,
+        #     price=current_price,
+        #     order_type='market'
+        # )
+
+        from app.utils.qmt_client import qmt_client
+        order_result = qmt_client.sell(stock_code,sell_quantity,current_price,'market')
         
         if order_result.get('success'):
             order_id = str(order_result.get('order_id', ''))

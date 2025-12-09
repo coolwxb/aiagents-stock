@@ -155,13 +155,17 @@ export default {
       try {
         const res = await getPositions()
         const data = res.data || res || {}
-        this.connectionStatus = data.connected !== false
+        // 从 account_info 嵌套对象中获取数据
+        const accountInfo = data.account_info || {}
+        this.connectionStatus = accountInfo.connected !== false
         this.positionList = data.positions || []
         this.accountInfo = {
-          total_value: data.total_value || 0,
-          available_cash: data.available_cash || 0,
-          positions_count: this.positionList.length,
-          total_profit_loss: data.total_profit_loss || 0
+          total_value: accountInfo.total_value || 0,
+          available_cash: accountInfo.available_cash || 0,
+          market_value: accountInfo.market_value || 0,
+          frozen_cash: accountInfo.frozen_cash || 0,
+          positions_count: accountInfo.positions_count || this.positionList.length,
+          total_profit_loss: accountInfo.total_profit_loss || 0
         }
       } catch (error) {
         console.error('加载持仓失败', error)
@@ -170,6 +174,8 @@ export default {
         this.accountInfo = {
           total_value: 0,
           available_cash: 0,
+          market_value: 0,
+          frozen_cash: 0,
           positions_count: 0,
           total_profit_loss: 0
         }
@@ -207,7 +213,8 @@ export default {
       if (value === null || value === undefined) return ''
       const num = Number(value)
       if (Number.isNaN(num)) return ''
-      return num >= 0 ? 'text-success' : 'text-danger'
+      // 中国股市：红涨绿跌
+      return num >= 0 ? 'text-profit' : 'text-loss'
     },
     // 供父组件调用的刷新方法
     refresh() {
@@ -263,12 +270,15 @@ export default {
   color: #303133;
 }
 
-.text-success {
-  color: #67c23a;
+/* 中国股市：红涨绿跌 */
+.text-profit {
+  color: #e74c3c;
+  font-weight: 500;
 }
 
-.text-danger {
-  color: #f56c6c;
+.text-loss {
+  color: #27ae60;
+  font-weight: 500;
 }
 
 .form-tip {

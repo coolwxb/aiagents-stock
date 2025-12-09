@@ -3,7 +3,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import mplfinance as mpf
 
-from xtquant import xtdata
 
 
 # =============================
@@ -112,8 +111,10 @@ def load_xtquant_kline(stock_code, start_date,end_date, period='1d', count=200):
         start_date_yyyymmdd = start_date.replace('-', '')
     else:
         start_date_yyyymmdd = start_date
-    from app.data.data_source import data_source_manager
-    stock_data = data_source_manager.get_stock_hist_data(stock_code,period,start_date=start_date_yyyymmdd,end_date= end_date_yyyymmdd,count=200)
+    # from app.data.data_source import data_source_manager
+    # stock_data = data_source_manager.get_stock_hist_data(stock_code,period,start_date=start_date_yyyymmdd,end_date= end_date_yyyymmdd,count=200)
+    from app.utils.qmt_client import qmt_client
+    stock_data = qmt_client.get_stock_hist_data(stock_code, period, start_date=start_date_yyyymmdd, end_date=end_date_yyyymmdd, count=200)
     if stock_data is None:
         print(f"警告: 获取到的数据是空的")
         return pd.DataFrame()
