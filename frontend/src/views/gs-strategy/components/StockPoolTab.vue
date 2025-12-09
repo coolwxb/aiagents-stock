@@ -394,6 +394,20 @@ export default {
 .action-buttons {
   display: flex;
   justify-content: center;
-  gap: 8px;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+/* 修复表格操作列按钮显示不全 */
+::v-deep .el-table .cell {
+  overflow: visible;
+}
+
+::v-deep .el-table__body-wrapper {
+  overflow: visible;
+}
+
+::v-deep .el-table--border td {
+  border-bottom: 1px solid #ebeef5;
 }
 </style>

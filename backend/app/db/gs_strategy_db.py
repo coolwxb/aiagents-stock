@@ -64,11 +64,33 @@ class GSStrategyDatabase:
             execution_count INTEGER DEFAULT 0,
             last_signal TEXT,
             last_signal_time TEXT,
+            pending_order_id TEXT,
+            pending_order_type TEXT,
+            pending_order_status INTEGER,
+            pending_order_status_name TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT,
             FOREIGN KEY(stock_pool_id) REFERENCES gs_stock_pool(id) ON DELETE CASCADE
         )
         ''')
+        
+        # 尝试添加监控任务表的新字段
+        try:
+            cursor.execute('ALTER TABLE gs_monitor_tasks ADD COLUMN pending_order_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE gs_monitor_tasks ADD COLUMN pending_order_type TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE gs_monitor_tasks ADD COLUMN pending_order_status INTEGER')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE gs_monitor_tasks ADD COLUMN pending_order_status_name TEXT')
+        except sqlite3.OperationalError:
+            pass
         
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_monitor_stock_code ON gs_monitor_tasks(stock_code)')
@@ -85,10 +107,14 @@ class GSStrategyDatabase:
             buy_quantity INTEGER,
             buy_time TEXT,
             buy_order_id TEXT,
+            buy_order_status INTEGER,
+            buy_order_status_name TEXT,
             sell_price REAL,
             sell_quantity INTEGER,
             sell_time TEXT,
             sell_order_id TEXT,
+            sell_order_status INTEGER,
+            sell_order_status_name TEXT,
             profit_loss REAL,
             profit_loss_pct REAL,
             status TEXT,
@@ -98,6 +124,24 @@ class GSStrategyDatabase:
             FOREIGN KEY(monitor_id) REFERENCES gs_monitor_tasks(id) ON DELETE CASCADE
         )
         ''')
+        
+        # 尝试添加新字段（如果表已存在但缺少字段）
+        try:
+            cursor.execute('ALTER TABLE gs_trade_history ADD COLUMN buy_order_status INTEGER')
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
+        try:
+            cursor.execute('ALTER TABLE gs_trade_history ADD COLUMN buy_order_status_name TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE gs_trade_history ADD COLUMN sell_order_status INTEGER')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE gs_trade_history ADD COLUMN sell_order_status_name TEXT')
+        except sqlite3.OperationalError:
+            pass
         
         # 创建索引
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_trade_stock_code ON gs_trade_history(stock_code)')
@@ -298,8 +342,13 @@ class GSStrategyDatabase:
             update_fields = []
             values = []
             
+            allowed_fields = ['interval', 'status', 'started_at', 'execution_count', 
+                              'last_signal', 'last_signal_time',
+                              'pending_order_id', 'pending_order_type', 
+                              'pending_order_status', 'pending_order_status_name']
+            
             for key, value in kwargs.items():
-                if key in ['interval', 'status', 'started_at', 'execution_count', 'last_signal', 'last_signal_time']:
+                if key in allowed_fields:
                     update_fields.append(f'{key} = ?')
                     values.append(value)
             
@@ -568,6 +617,155 @@ class GSStrategyDatabase:
         conn.close()
         return None
     
+    # 别名方法，兼容gs_scheduler调用
+    def get_monitor(self, monitor_id: int) -> Optional[Dict]:
+        """get_monitor_by_id的别名"""
+        return self.get_monitor_by_id(monitor_id)
+    
+    def get_open_trade(self, monitor_id: int) -> Optional[Dict]:
+        """get_open_trade_by_monitor的别名"""
+        return self.get_open_trade_by_monitor(monitor_id)
+    
+    def add_trade_history(self, monitor_id: int, stock_code: str, stock_name: str,
+                          buy_price: float = None, buy_quantity: int = None,
+                          buy_time: str = None, buy_order_id: str = None,
+                          buy_order_status: int = None, buy_order_status_name: str = None,
+                          sell_price: float = None, sell_quantity: int = None,
+                          sell_time: str = None, sell_order_id: str = None,
+                          sell_order_status: int = None, sell_order_status_name: str = None,
+                          status: str = 'open', trade_details: str = None) -> int:
+        """
+        添加交易历史记录
+        
+        Args:
+            monitor_id: 监控任务ID
+            stock_code: 股票代码
+            stock_name: 股票名称
+            buy_price: 买入价格
+            buy_quantity: 买入数量
+            buy_time: 买入时间
+            buy_order_id: 买入订单ID
+            buy_order_status: 买入委托状态码
+            buy_order_status_name: 买入委托状态名称
+            sell_price: 卖出价格
+            sell_quantity: 卖出数量
+            sell_time: 卖出时间
+            sell_order_id: 卖出订单ID
+            sell_order_status: 卖出委托状态码
+            sell_order_status_name: 卖出委托状态名称
+            status: 状态
+            trade_details: 交易详情JSON
+            
+        Returns:
+            int: 交易记录ID
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+            INSERT INTO gs_trade_history 
+            (monitor_id, stock_code, stock_name, buy_price, buy_quantity, buy_time, buy_order_id,
+             buy_order_status, buy_order_status_name,
+             sell_price, sell_quantity, sell_time, sell_order_id,
+             sell_order_status, sell_order_status_name,
+             status, trade_details)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (monitor_id, stock_code, stock_name, buy_price, buy_quantity, buy_time, buy_order_id,
+                  buy_order_status, buy_order_status_name,
+                  sell_price, sell_quantity, sell_time, sell_order_id,
+                  sell_order_status, sell_order_status_name,
+                  status, trade_details))
+            
+            trade_id = cursor.lastrowid
+            conn.commit()
+            
+            self.logger.info(f"[GS策略] 添加交易记录: {stock_code}")
+            return trade_id
+            
+        finally:
+            conn.close()
+    
+    def update_trade_history(self, trade_id: int, data: Dict) -> bool:
+        """
+        更新交易历史记录
+        
+        Args:
+            trade_id: 交易记录ID
+            data: 要更新的字段字典
+            
+        Returns:
+            bool: 是否更新成功
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # 构建更新语句
+            update_fields = []
+            values = []
+            
+            allowed_fields = ['buy_price', 'sell_price', 'sell_quantity', 'sell_time', 'sell_order_id',
+                              'buy_order_status', 'buy_order_status_name',
+                              'sell_order_status', 'sell_order_status_name',
+                              'profit_loss', 'profit_loss_pct', 'status', 'trade_details']
+            
+            for key, value in data.items():
+                if key in allowed_fields:
+                    update_fields.append(f'{key} = ?')
+                    values.append(value)
+            
+            if not update_fields:
+                return False
+            
+            # 添加updated_at
+            update_fields.append('updated_at = ?')
+            values.append(datetime.now().isoformat())
+            values.append(trade_id)
+            
+            query = f"UPDATE gs_trade_history SET {', '.join(update_fields)} WHERE id = ?"
+            cursor.execute(query, values)
+            
+            updated_count = cursor.rowcount
+            conn.commit()
+            
+            return updated_count > 0
+            
+        finally:
+            conn.close()
+    
+    def get_trade_by_order_id(self, order_id: str) -> Optional[Dict]:
+        """
+        根据订单ID查找交易记录
+        
+        Args:
+            order_id: 订单ID（买入或卖出）
+            
+        Returns:
+            Optional[Dict]: 交易记录
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+            SELECT * FROM gs_trade_history
+            WHERE buy_order_id = ? OR sell_order_id = ?
+            ORDER BY created_at DESC
+            LIMIT 1
+            ''', (order_id, order_id))
+            
+            row = cursor.fetchone()
+            
+            if row:
+                columns = [desc[0] for desc in cursor.description]
+                return dict(zip(columns, row))
+            
+            return None
+            
+        finally:
+            conn.close()
+    
     def get_statistics(self) -> Dict:
         """
         获取交易统计数据
@@ -641,7 +839,11 @@ class GSStrategyDatabase:
 
 
 # 创建全局实例
-gs_strategy_db = GSStrategyDatabase('gs_strategy.db')
+# 使用绝对路径确保数据库文件位置一致
+import os
+_db_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_db_path = os.path.join(_db_dir, 'gs_strategy.db')
+gs_strategy_db = GSStrategyDatabase(_db_path)
 
 
 # 测试函数

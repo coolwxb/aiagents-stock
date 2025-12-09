@@ -114,7 +114,7 @@ def load_xtquant_kline(stock_code, start_date,end_date, period='1d', count=200):
     # from app.data.data_source import data_source_manager
     # stock_data = data_source_manager.get_stock_hist_data(stock_code,period,start_date=start_date_yyyymmdd,end_date= end_date_yyyymmdd,count=200)
     from app.utils.qmt_client import qmt_client
-    stock_data = qmt_client.get_stock_hist_data(stock_code, period, start_date=start_date_yyyymmdd, end_date=end_date_yyyymmdd, count=200)
+    stock_data = qmt_client.get_stock_hist_data(stock_code = stock_code,period= period, start_date=start_date_yyyymmdd, end_date=end_date_yyyymmdd, count=200)
     if stock_data is None:
         print(f"警告: 获取到的数据是空的")
         return pd.DataFrame()
@@ -129,13 +129,20 @@ def load_xtquant_kline(stock_code, start_date,end_date, period='1d', count=200):
         "time": stock_data["date"].values,
     })
 
-    # 使用日期列作为索引，因为它更符合用户的预期
+    # 使用日期列作为索引
     date_values = stock_data["date"].values
-    print(f"前5个日期值: {date_values[:5]}")
-    print(f"后5个日期值: {date_values[-5:]}")
     
-    # 将日期字符串转换为日期时间索引
-    df.index = pd.to_datetime(date_values, format='%Y%m%d')
+    # 判断日期格式：毫秒时间戳 or YYYYMMDD字符串
+    first_val = str(date_values[0])
+    if len(first_val) == 13 and first_val.isdigit():
+        # 毫秒时间戳
+        df.index = pd.to_datetime(date_values.astype(int), unit='ms')
+    elif len(first_val) == 8 and first_val.isdigit():
+        # YYYYMMDD格式
+        df.index = pd.to_datetime(date_values, format='%Y%m%d')
+    else:
+        # 尝试自动解析
+        df.index = pd.to_datetime(date_values)
     
     return df
 

@@ -6,7 +6,7 @@ QMT交易服务
 import logging
 import time
 import threading
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Callable, Any
 from datetime import datetime
 from enum import Enum
 from sqlalchemy.orm import Session
@@ -25,6 +25,150 @@ class OrderType(Enum):
     """订单类型枚举"""
     MARKET = "market"
     LIMIT = "limit"
+
+
+class OrderStatus:
+    """订单状态常量（来自xtconstant）"""
+    UNREPORTED = 48       # 未报
+    WAIT_REPORTING = 49   # 待报
+    REPORTED = 50         # 已报
+    REPORTED_CANCEL = 51  # 已报待撤
+    PARTSUCC_CANCEL = 52  # 部成待撤
+    PART_CANCEL = 53      # 部撤
+    CANCELED = 54         # 已撤
+    PART_SUCC = 55        # 部成
+    SUCCEEDED = 56        # 已成
+    JUNK = 57             # 废单
+    UNKNOWN = 255         # 未知
+    
+    # 最终状态集合（不再变化的状态）
+    FINAL_STATUS = {54, 56, 57, 53}
+    
+    @staticmethod
+    def get_name(status: int) -> str:
+        """获取状态名称"""
+        names = {
+            48: '未报', 49: '待报', 50: '已报', 51: '已报待撤',
+            52: '部成待撤', 53: '部撤', 54: '已撤', 55: '部成',
+            56: '已成', 57: '废单', 255: '未知'
+        }
+        return names.get(status, f'未知({status})')
+    
+    @staticmethod
+    def is_final(status: int) -> bool:
+        """判断是否为最终状态"""
+        return status in OrderStatus.FINAL_STATUS
+    
+    @staticmethod
+    def is_success(status: int) -> bool:
+        """判断是否成功"""
+        return status == OrderStatus.SUCCEEDED
+
+
+class QMTEventBus:
+    """
+    QMT事件总线 - 发布订阅模式
+    用于解耦回调和业务逻辑
+    """
+    
+    # 事件类型常量
+    EVENT_ORDER_STATUS = 'order_status'      # 订单状态变化
+    EVENT_ORDER_ERROR = 'order_error'        # 下单错误
+    EVENT_TRADE = 'trade'                    # 成交回报
+    EVENT_CANCEL_ERROR = 'cancel_error'      # 撤单错误
+    EVENT_DISCONNECTED = 'disconnected'      # 连接断开
+    EVENT_ACCOUNT_STATUS = 'account_status'  # 账户状态
+    
+    _instance = None
+    _lock = threading.Lock()
+    
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._subscribers = {}  # {event_type: [callback, ...]}
+                    cls._instance._subscriber_lock = threading.Lock()
+                    cls._instance.logger = logging.getLogger(__name__)
+        return cls._instance
+    
+    def subscribe(self, event_type: str, callback: Callable[[Dict], None]) -> None:
+        """
+        订阅事件
+        
+        Args:
+            event_type: 事件类型
+            callback: 回调函数，接收事件数据字典
+        """
+        with self._subscriber_lock:
+            if event_type not in self._subscribers:
+                self._subscribers[event_type] = []
+            if callback not in self._subscribers[event_type]:
+                self._subscribers[event_type].append(callback)
+                self.logger.debug(f"订阅事件: {event_type}")
+    
+    def unsubscribe(self, event_type: str, callback: Callable[[Dict], None]) -> None:
+        """
+        取消订阅
+        
+        Args:
+            event_type: 事件类型
+            callback: 回调函数
+        """
+        with self._subscriber_lock:
+            if event_type in self._subscribers:
+                if callback in self._subscribers[event_type]:
+                    self._subscribers[event_type].remove(callback)
+                    self.logger.debug(f"取消订阅: {event_type}")
+    
+    def publish(self, event_type: str, data: Dict) -> None:
+        """
+        发布事件（广播给所有订阅者）
+        
+        Args:
+            event_type: 事件类型
+            data: 事件数据
+        """
+        with self._subscriber_lock:
+            subscribers = self._subscribers.get(event_type, []).copy()
+        
+        # 添加事件元数据
+        data['_event_type'] = event_type
+        data['_timestamp'] = time.time()
+        data['_datetime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # 异步通知所有订阅者
+        for callback in subscribers:
+            try:
+                # 在新线程中执行回调，避免阻塞
+                threading.Thread(target=callback, args=(data,), daemon=True).start()
+            except Exception as e:
+                self.logger.error(f"事件回调执行失败 [{event_type}]: {e}")
+    
+    def publish_sync(self, event_type: str, data: Dict) -> None:
+        """
+        同步发布事件（在当前线程执行）
+        
+        Args:
+            event_type: 事件类型
+            data: 事件数据
+        """
+        with self._subscriber_lock:
+            subscribers = self._subscribers.get(event_type, []).copy()
+        
+        data['_event_type'] = event_type
+        data['_timestamp'] = time.time()
+        data['_datetime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        for callback in subscribers:
+            try:
+                callback(data)
+            except Exception as e:
+                self.logger.error(f"事件回调执行失败 [{event_type}]: {e}")
+
+
+# 全局事件总线实例
+qmt_event_bus = QMTEventBus()
 
 
 class QMTService:
@@ -162,21 +306,85 @@ class QMTService:
             return False, "账户ID未配置，请在环境配置中设置"
         
         try:
-            # 1. 创建回调类（简化版）
-            class SimpleCallback(self.XtQuantTraderCallback):
+            # 1. 创建回调类（通过事件总线广播消息）
+            class MyXtQuantTraderCallback(self.XtQuantTraderCallback):
                 def on_disconnected(self):
-                    logging.getLogger(__name__).warning("QMT连接断开")
+                    """连接断开回调"""
+                    print("connection lost")
+                    QMTService._connected = False
+                    qmt_event_bus.publish(QMTEventBus.EVENT_DISCONNECTED, {
+                        'message': '连接已断开'
+                    })
+                
+                def on_account_status(self, status):
+                    """账号状态信息推送"""
+                    print(f"on_account_status: {status.account_id}, {status.account_type}, {status.status}")
+                    qmt_event_bus.publish(QMTEventBus.EVENT_ACCOUNT_STATUS, {
+                        'account_id': status.account_id,
+                        'account_type': status.account_type,
+                        'status': status.status
+                    })
                 
                 def on_stock_order(self, order):
-                    logging.getLogger(__name__).info(f"委托回报: {order.order_remark}")
+                    """
+                    委托信息推送 - 核心订单状态回调
+                    通过事件总线广播订单状态变化
+                    """
+                   
+                    print(f"on_stock_order: {order.stock_code}, status={order.order_status}({OrderStatus.get_name(order.order_status)}), order_id={order.order_id}, sysid={order.order_sysid}")
+                    qmt_event_bus.publish(QMTEventBus.EVENT_ORDER_STATUS, {
+                        'order_id': order.order_id, #订单编号
+                        'order_sysid': order.order_sysid, #柜台合同编号
+                        'stock_code': order.stock_code,
+                        'order_status': order.order_status,
+                        'order_status_name': OrderStatus.get_name(order.order_status),
+                        'is_final': OrderStatus.is_final(order.order_status),
+                        'is_success': OrderStatus.is_success(order.order_status),
+                        'order_volume': getattr(order, 'order_volume', 0),
+                        'traded_volume': getattr(order, 'traded_volume', 0),
+                        'traded_price': getattr(order, 'traded_price', 0),
+                        'order_type': getattr(order, 'order_type', 0),
+                        'price': getattr(order, 'price', 0)
+                    })
                 
                 def on_stock_trade(self, trade):
-                    logging.getLogger(__name__).info(f"成交回报: {trade.order_remark}")
+                    """成交信息推送"""
+                    print(f"on_stock_trade: {trade.stock_code}, order_id={trade.order_id}")
+                    qmt_event_bus.publish(QMTEventBus.EVENT_TRADE, {
+                        'account_id': trade.account_id,
+                        'order_id': trade.order_id,
+                        'stock_code': trade.stock_code,
+                        'traded_volume': getattr(trade, 'traded_volume', 0),
+                        'traded_price': getattr(trade, 'traded_price', 0),
+                        'trade_time': getattr(trade, 'trade_time', '')
+                    })
                 
                 def on_order_error(self, order_error):
-                    logging.getLogger(__name__).error(
-                        f"委托失败: {order_error.order_remark} {order_error.error_msg}"
-                    )
+                    """下单失败信息推送"""
+                    print(f"on_order_error: order_id={order_error.order_id}, error_id={order_error.error_id}, msg={order_error.error_msg}")
+                    qmt_event_bus.publish(QMTEventBus.EVENT_ORDER_ERROR, {
+                        'order_id': order_error.order_id,
+                        'error_id': order_error.error_id,
+                        'error_msg': order_error.error_msg
+                    })
+                
+                def on_cancel_error(self, cancel_error):
+                    """撤单失败信息推送"""
+                    print(f"on_cancel_error: order_id={cancel_error.order_id}, error_id={cancel_error.error_id}, msg={cancel_error.error_msg}")
+                    qmt_event_bus.publish(QMTEventBus.EVENT_CANCEL_ERROR, {
+                        'order_id': cancel_error.order_id,
+                        'error_id': cancel_error.error_id,
+                        'error_msg': cancel_error.error_msg
+                    })
+                
+                def on_order_stock_async_response(self, response):
+                    """异步下单回报推送"""
+                    print(f"on_order_stock_async_response: account={response.account_id}, order_id={response.order_id}, seq={response.seq}")
+                
+                def on_smt_appointment_async_response(self, response):
+                    """预约委托异步回报"""
+                    print(f"on_smt_appointment_async_response: account={response.account_id}, sysid={response.order_sysid}")
+
             
             # 2. 创建API实例（使用时间戳作为session_id）
             session_id = int(time.time() * 1000)
@@ -186,7 +394,7 @@ class QMTService:
             )
             
             # 3. 注册回调
-            callback = SimpleCallback()
+            callback = MyXtQuantTraderCallback()
             QMTService._xttrader.register_callback(callback)
             
             # 4. 启动交易线程
@@ -423,7 +631,11 @@ class QMTService:
     def buy_stock(self, stock_code: str, quantity: int, 
                  price: float = 0, order_type: str = 'market') -> Dict:
         """
-        买入股票
+        买入股票（异步下单）
+        
+        订单提交后，最终成交状态通过事件总线广播：
+        - 订阅 QMTEventBus.EVENT_ORDER_STATUS 获取订单状态变化
+        - 当 order_status == 56 (OrderStatus.SUCCEEDED) 时表示成交成功
         
         Args:
             stock_code: 股票代码
@@ -432,11 +644,12 @@ class QMTService:
             order_type: 订单类型 ('market': 市价, 'limit': 限价)
             
         Returns:
-            订单结果
+            订单提交结果（注意：success=True仅表示订单提交成功，不代表成交）
         """
         if not self.is_connected():
             return {
                 'success': False,
+                'submitted': False,
                 'error': 'QMT未连接',
                 'message': '模拟模式：买入订单已记录但未实际执行'
             }
@@ -445,6 +658,7 @@ class QMTService:
         if quantity % 100 != 0:
             return {
                 'success': False,
+                'submitted': False,
                 'error': 'A股买入数量必须是100的整数倍（1手=100股）'
             }
         
@@ -475,35 +689,41 @@ class QMTService:
             
             # order_stock 返回: 成功时返回大于0的正整数, 失败时返回-1
             if order_id > 0:
-                print(f"买入订单已提交: {stock_code}, 数量: {quantity}, 订单号: {order_id}")
+                self.logger.info(f"买入订单已提交: {stock_code}, 数量: {quantity}, 订单号: {order_id}")
                 return {
                     'success': True,
+                    'submitted': True,
                     'order_id': order_id,
-                    'stock_code': stock_code,
+                    'stock_code': full_code,
                     'quantity': quantity,
                     'price': price,
                     'order_type': order_type,
-                    'message': '买入订单已提交'
+                    'action': 'buy',
+                    'message': '买入订单已提交，请通过事件总线订阅订单状态'
                 }
             else:
-                print(f"买入订单失败: {stock_code}, 数量: {quantity}, 订单号: {order_id}")
+                self.logger.error(f"买入订单提交失败: {stock_code}, 数量: {quantity}, 订单号: {order_id}")
                 return {
                     'success': False,
-                    'error': f'下单失败，订单号: {order_id}'
+                    'submitted': False,
+                    'error': f'下单提交失败，订单号: {order_id}'
                 }
         except Exception as e:
-           
-            print(f"买入股票失败 {stock_code}: {e}, 错误信息: {e}")
+            self.logger.error(f"买入股票失败 {stock_code}: {e}")
             return {
-                'success': False,   
+                'success': False,
+                'submitted': False,
                 'error': str(e)
-        
             }
     
     def sell_stock(self, stock_code: str, quantity: int, 
                   price: float = 0, order_type: str = 'market') -> Dict:
         """
-        卖出股票
+        卖出股票（异步下单）
+        
+        订单提交后，最终成交状态通过事件总线广播：
+        - 订阅 QMTEventBus.EVENT_ORDER_STATUS 获取订单状态变化
+        - 当 order_status == 56 (OrderStatus.SUCCEEDED) 时表示成交成功
         
         Args:
             stock_code: 股票代码
@@ -512,11 +732,12 @@ class QMTService:
             order_type: 订单类型 ('market': 市价, 'limit': 限价)
             
         Returns:
-            订单结果
+            订单提交结果（注意：success=True仅表示订单提交成功，不代表成交）
         """
         if not self.is_connected():
             return {
                 'success': False,
+                'submitted': False,
                 'error': 'QMT未连接',
                 'message': '模拟模式：卖出订单已记录但未实际执行'
             }
@@ -527,6 +748,7 @@ class QMTService:
             if not position:
                 return {
                     'success': False,
+                    'submitted': False,
                     'error': f'未持有股票 {stock_code}'
                 }
             
@@ -534,6 +756,7 @@ class QMTService:
             if quantity > position['can_sell']:
                 return {
                     'success': False,
+                    'submitted': False,
                     'error': f'可卖数量不足（可卖: {position["can_sell"]}股，T+1限制）'
                 }
             
@@ -565,23 +788,28 @@ class QMTService:
                 self.logger.info(f"卖出订单已提交: {stock_code}, 数量: {quantity}, 订单号: {order_id}")
                 return {
                     'success': True,
+                    'submitted': True,
                     'order_id': order_id,
-                    'stock_code': stock_code,
+                    'stock_code': full_code,
                     'quantity': quantity,
                     'price': price,
                     'order_type': order_type,
-                    'message': '卖出订单已提交'
+                    'action': 'sell',
+                    'message': '卖出订单已提交，请通过事件总线订阅订单状态'
                 }
             else:
+                self.logger.error(f"卖出订单提交失败: {stock_code}, 数量: {quantity}, 订单号: {order_id}")
                 return {
                     'success': False,
-                    'error': f'下单失败，订单号: {order_id}'
+                    'submitted': False,
+                    'error': f'下单提交失败，订单号: {order_id}'
                 }
                 
         except Exception as e:
             self.logger.error(f"卖出股票失败 {stock_code}: {e}")
             return {
                 'success': False,
+                'submitted': False,
                 'error': str(e)
             }
     

@@ -11,11 +11,9 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-from app.database import SessionLocal
-from app.models.gs_strategy import GSMonitorTask, GSTradeHistory
 from app.policy.gs import compute_g_buy_sell, load_xtquant_kline
-# from app.services.qmt_service import qmt_service
 from app.services.notification_service import get_notification_service
+from app.services.qmt_service import qmt_event_bus, QMTEventBus, OrderStatus
 
 
 class GSScheduler:
@@ -45,7 +43,175 @@ class GSScheduler:
         
         self.logger = logging.getLogger(__name__)
         self._initialized = True
+        
+        # 订阅订单状态事件
+        self._subscribe_order_events()
+        
         self.logger.info("GS策略调度器初始化完成")
+    
+    def _subscribe_order_events(self):
+        """订阅QMT订单状态事件"""
+        qmt_event_bus.subscribe(QMTEventBus.EVENT_ORDER_STATUS, self._on_order_status)
+        qmt_event_bus.subscribe(QMTEventBus.EVENT_ORDER_ERROR, self._on_order_error)
+        self.logger.info("已订阅QMT订单状态事件")
+    
+    def _on_order_status(self, data: Dict):
+        """
+        处理订单状态变化事件
+        
+        Args:
+            data: 订单状态数据，包含:
+                - order_id: 订单ID
+                - order_status: 状态码
+                - order_status_name: 状态名称
+                - is_final: 是否最终状态
+                - is_success: 是否成功(状态码56)
+                - stock_code: 股票代码
+                - traded_volume: 成交数量
+                - traded_price: 成交价格
+        """
+        from app.db.gs_strategy_db import gs_strategy_db
+        
+        try:
+            order_id = str(data.get('order_id', ''))
+            order_status = data.get('order_status')
+            order_status_name = data.get('order_status_name', '')
+            is_final = data.get('is_final', False)
+            is_success = data.get('is_success', False)
+            stock_code = data.get('stock_code', '')
+            
+            self.logger.info(f"收到订单状态更新: order_id={order_id}, status={order_status}({order_status_name}), is_final={is_final}")
+            
+            if not order_id:
+                return
+            
+            # 查找对应的交易记录（买入或卖出）
+            trade = gs_strategy_db.get_trade_by_order_id(order_id)
+            
+            if not trade:
+                self.logger.debug(f"未找到订单 {order_id} 对应的交易记录")
+                return
+            
+            monitor_id = trade.get('monitor_id')
+            
+            # 判断是买入还是卖出订单
+            is_buy_order = trade.get('buy_order_id') == order_id
+            is_sell_order = trade.get('sell_order_id') == order_id
+            
+            update_data = {}
+            
+            if is_buy_order:
+                update_data['buy_order_status'] = order_status
+                update_data['buy_order_status_name'] = order_status_name
+                
+                # 如果买入成功，更新成交价格
+                if is_success:
+                    traded_price = data.get('traded_price', 0)
+                    if traded_price > 0:
+                        update_data['buy_price'] = traded_price
+                    self.logger.info(f"买入订单成交: {stock_code}, order_id={order_id}")
+                elif is_final and not is_success:
+                    # 买入失败（已撤、废单等）
+                    self.logger.warning(f"买入订单未成交: {stock_code}, status={order_status_name}")
+                    
+            elif is_sell_order:
+                update_data['sell_order_status'] = order_status
+                update_data['sell_order_status_name'] = order_status_name
+                
+                # 如果卖出成功，更新成交价格和盈亏
+                if is_success:
+                    traded_price = data.get('traded_price', 0)
+                    if traded_price > 0:
+                        update_data['sell_price'] = traded_price
+                        # 重新计算盈亏
+                        buy_price = trade.get('buy_price', 0)
+                        buy_quantity = trade.get('buy_quantity', 0)
+                        if buy_price and buy_quantity:
+                            update_data['profit_loss'] = (traded_price - buy_price) * buy_quantity
+                            update_data['profit_loss_pct'] = ((traded_price - buy_price) / buy_price) * 100
+                    self.logger.info(f"卖出订单成交: {stock_code}, order_id={order_id}")
+                elif is_final and not is_success:
+                    self.logger.warning(f"卖出订单未成交: {stock_code}, status={order_status_name}")
+            
+            # 更新交易记录
+            if update_data:
+                gs_strategy_db.update_trade_history(trade['id'], update_data)
+                self.logger.debug(f"已更新交易记录 {trade['id']}: {update_data}")
+            
+            # 更新监控任务的委托状态
+            if monitor_id:
+                monitor_update = {
+                    'pending_order_status': order_status,
+                    'pending_order_status_name': order_status_name
+                }
+                # 如果是最终状态，清除待处理订单信息
+                if is_final:
+                    monitor_update['pending_order_id'] = None
+                    monitor_update['pending_order_type'] = None
+                    monitor_update['pending_order_status'] = None
+                    monitor_update['pending_order_status_name'] = None
+                    self.logger.info(f"监控任务 {monitor_id} 委托已完成，清除待处理状态")
+                
+                gs_strategy_db.update_monitor(monitor_id, **monitor_update)
+                
+        except Exception as e:
+            self.logger.error(f"处理订单状态事件失败: {e}")
+    
+    def _on_order_error(self, data: Dict):
+        """
+        处理订单错误事件
+        
+        Args:
+            data: 错误数据，包含:
+                - order_id: 订单ID
+                - error_id: 错误码
+                - error_msg: 错误信息
+        """
+        from app.db.gs_strategy_db import gs_strategy_db
+        
+        try:
+            order_id = str(data.get('order_id', ''))
+            error_msg = data.get('error_msg', '')
+            
+            self.logger.error(f"订单错误: order_id={order_id}, error={error_msg}")
+            
+            if not order_id:
+                return
+            
+            # 查找对应的交易记录
+            trade = gs_strategy_db.get_trade_by_order_id(order_id)
+            
+            if not trade:
+                return
+            
+            monitor_id = trade.get('monitor_id')
+            
+            # 判断是买入还是卖出订单
+            is_buy_order = trade.get('buy_order_id') == order_id
+            
+            update_data = {}
+            if is_buy_order:
+                update_data['buy_order_status'] = OrderStatus.JUNK  # 废单
+                update_data['buy_order_status_name'] = f'失败: {error_msg}'
+            else:
+                update_data['sell_order_status'] = OrderStatus.JUNK
+                update_data['sell_order_status_name'] = f'失败: {error_msg}'
+            
+            gs_strategy_db.update_trade_history(trade['id'], update_data)
+            
+            # 清除监控任务的待处理订单状态（订单失败）
+            if monitor_id:
+                gs_strategy_db.update_monitor(
+                    monitor_id,
+                    pending_order_id=None,
+                    pending_order_type=None,
+                    pending_order_status=None,
+                    pending_order_status_name=None
+                )
+                self.logger.info(f"监控任务 {monitor_id} 订单失败，清除待处理状态")
+            
+        except Exception as e:
+            self.logger.error(f"处理订单错误事件失败: {e}")
 
     # ==================== 监控线程管理方法 ====================
     
@@ -196,10 +362,11 @@ class GSScheduler:
             stock_code: 股票代码
             stock_name: 股票名称
         """
-        db = SessionLocal()
+        from app.db.gs_strategy_db import gs_strategy_db
+        
         try:
-            # 获取监控任务
-            monitor = db.query(GSMonitorTask).filter(GSMonitorTask.id == monitor_id).first()
+            # 获取监控任务（使用gs_strategy_db）
+            monitor = gs_strategy_db.get_monitor(monitor_id)
             if not monitor:
                 self.logger.error(f"监控任务 {monitor_id} 不存在")
                 return
@@ -212,45 +379,51 @@ class GSScheduler:
                 return
             
             # 更新执行次数
-            monitor.execution_count = (monitor.execution_count or 0) + 1
+            execution_count = (monitor.get('execution_count') or 0) + 1
             
             # 处理信号
             g_buy = signal_data.get('g_buy', 0)
             g_sell = signal_data.get('g_sell', 0)
+
+            g_buy =1
             
             if g_buy == 1:
                 # 买入信号
-                monitor.last_signal = 'buy'
-                monitor.last_signal_time = datetime.now()
+                gs_strategy_db.update_monitor(
+                    monitor_id,
+                    last_signal='buy',
+                    last_signal_time=datetime.now().isoformat(),
+                    execution_count=execution_count
+                )
                 
                 # 处理买入
-                # - 如果QMT买入成功，会在_handle_buy_signal中提交交易记录和信号更新
-                # - 如果QMT买入失败，会抛出异常，触发回滚信号更新
-                self._handle_buy_signal(monitor_id, stock_code, stock_name, signal_data, db)
+                self._handle_buy_signal(monitor_id, stock_code, stock_name, signal_data)
                 
             elif g_sell == 1:
                 # 卖出信号
-                monitor.last_signal = 'sell'
-                monitor.last_signal_time = datetime.now()
+                gs_strategy_db.update_monitor(
+                    monitor_id,
+                    last_signal='sell',
+                    last_signal_time=datetime.now().isoformat(),
+                    execution_count=execution_count
+                )
                 
                 # 处理卖出
-                # - 如果QMT卖出成功，会在_handle_sell_signal中提交交易记录和信号更新
-                # - 如果QMT卖出失败，会抛出异常，触发回滚信号更新
-                self._handle_sell_signal(monitor_id, stock_code, stock_name, signal_data, db)
+                self._handle_sell_signal(monitor_id, stock_code, stock_name, signal_data)
                 
             else:
                 # 持有信号
-                monitor.last_signal = 'hold'
-                monitor.last_signal_time = datetime.now()
-                db.commit()
+                gs_strategy_db.update_monitor(
+                    monitor_id,
+                    last_signal='hold',
+                    last_signal_time=datetime.now().isoformat(),
+                    execution_count=execution_count
+                )
                 
                 self.logger.debug(f"{stock_code} 无交易信号")
             
         except Exception as e:
             self.logger.error(f"执行策略失败 {stock_code}: {e}")
-            db.rollback()
-        finally:
-            db.close()
     
     def _compute_gs_signal(self, stock_code: str) -> Optional[Dict]:
         """
@@ -301,7 +474,7 @@ class GSScheduler:
             return None
     
     def _handle_buy_signal(self, monitor_id: int, stock_code: str, stock_name: str, 
-                           signal_data: Dict, db):
+                           signal_data: Dict):
         """
         处理买入信号
         
@@ -310,12 +483,25 @@ class GSScheduler:
             stock_code: 股票代码
             stock_name: 股票名称
             signal_data: 信号数据
-            db: 数据库会话
-            
-        Raises:
-            Exception: 买入失败时抛出异常，触发事务回滚
         """
+        from app.db.gs_strategy_db import gs_strategy_db
+        
         self.logger.info(f"检测到买入信号: {stock_code} ({stock_name})")
+        
+        # 检查是否有待处理的委托（防止重复下单）
+        monitor = gs_strategy_db.get_monitor(monitor_id)
+        if monitor:
+            pending_order_id = monitor.get('pending_order_id')
+            pending_order_status = monitor.get('pending_order_status')
+            
+            if pending_order_id and pending_order_status is not None:
+                # 检查是否为非最终状态（未报、待报、已报、部成等）
+                if not OrderStatus.is_final(pending_order_status):
+                    self.logger.warning(
+                        f"监控任务 {monitor_id} 有待处理的委托 (order_id={pending_order_id}, "
+                        f"status={OrderStatus.get_name(pending_order_status)})，跳过本次买入"
+                    )
+                    return
         
         # 获取当前价格
         current_price = signal_data.get('close', 0)
@@ -324,37 +510,40 @@ class GSScheduler:
         buy_quantity = 100  # 1手
         
         # 调用QMT买入接口
-        # order_result = qmt_service.buy_stock(
-        #     stock_code=stock_code,
-        #     quantity=buy_quantity,
-        #     price=current_price,
-        #     order_type='market'
-        # )
         from app.utils.qmt_client import qmt_client
-        order_result = qmt_client.buy(stock_code,buy_quantity,current_price,'market')
+        order_result = qmt_client.buy(stock_code, buy_quantity, current_price, 'market')
         
+        # success 不代表最终成交，只代下单成功
         if order_result.get('success'):
             order_id = str(order_result.get('order_id', ''))
             
-            # 记录交易 - QMT交易成功后必须立即提交，确保交易记录不丢失
-            trade = GSTradeHistory(
+            # 更新监控任务的待处理委托状态
+            gs_strategy_db.update_monitor(
+                monitor_id,
+                pending_order_id=order_id,
+                pending_order_type='buy',
+                pending_order_status=OrderStatus.REPORTED,
+                pending_order_status_name='已报'
+            )
+            
+            # 记录交易到gs_strategy_db（初始状态为"已报"，等待回调更新最终状态）
+            gs_strategy_db.add_trade_history(
                 monitor_id=monitor_id,
                 stock_code=stock_code,
                 stock_name=stock_name,
                 buy_price=current_price,
                 buy_quantity=buy_quantity,
-                buy_time=datetime.now(),
+                buy_time=datetime.now().isoformat(),
                 buy_order_id=order_id,
+                buy_order_status=OrderStatus.REPORTED,  # 初始状态：已报
+                buy_order_status_name='已报',
                 status='open',
                 trade_details=json.dumps(signal_data, ensure_ascii=False)
             )
-            db.add(trade)
-            # 立即提交，确保交易记录保存
-            db.commit()
             
-            self.logger.info(f"买入订单已提交: {stock_code}, 价格: {current_price}, 数量: {buy_quantity}")
+            self.logger.info(f"买入订单已提交: {stock_code}, 价格: {current_price}, 数量: {buy_quantity}, 等待成交回调")
             
-            # 发送通知（通知失败不影响交易记录）
+            # 发送通知
             try:
                 self._send_trade_notification(
                     stock_code=stock_code,
@@ -371,7 +560,7 @@ class GSScheduler:
             error_msg = order_result.get('error', '未知错误')
             self.logger.error(f"买入订单失败: {stock_code}, 错误: {error_msg}")
             
-            # 发送失败通知（通知失败不影响异常抛出）
+            # 发送失败通知
             try:
                 self._send_trade_notification(
                     stock_code=stock_code,
@@ -385,12 +574,9 @@ class GSScheduler:
                 )
             except Exception as e:
                 self.logger.error(f"发送买入失败通知失败: {e}")
-            
-            # 抛出异常触发事务回滚（回滚信号更新）
-            raise Exception(f"买入订单失败: {error_msg}")
     
     def _handle_sell_signal(self, monitor_id: int, stock_code: str, stock_name: str, 
-                            signal_data: Dict, db):
+                            signal_data: Dict):
         """
         处理卖出信号
         
@@ -399,90 +585,104 @@ class GSScheduler:
             stock_code: 股票代码
             stock_name: 股票名称
             signal_data: 信号数据
-            db: 数据库会话
-            
-        Raises:
-            Exception: 卖出失败时抛出异常，触发事务回滚
         """
+        from app.db.gs_strategy_db import gs_strategy_db
+        from app.utils.qmt_client import qmt_client
+        
         self.logger.info(f"检测到卖出信号: {stock_code} ({stock_name})")
+        
+        # 检查是否有待处理的委托（防止重复下单）
+        monitor = gs_strategy_db.get_monitor(monitor_id)
+        if monitor:
+            pending_order_id = monitor.get('pending_order_id')
+            pending_order_status = monitor.get('pending_order_status')
+            
+            if pending_order_id and pending_order_status is not None:
+                # 检查是否为非最终状态
+                if not OrderStatus.is_final(pending_order_status):
+                    self.logger.warning(
+                        f"监控任务 {monitor_id} 有待处理的委托 (order_id={pending_order_id}, "
+                        f"status={OrderStatus.get_name(pending_order_status)})，跳过本次卖出"
+                    )
+                    return
         
         # 获取当前价格
         current_price = signal_data.get('close', 0)
         
         # 查询持仓
-        # position = qmt_service.get_position(stock_code)
-        from app.utils.qmt_client import qmt_client
         position = qmt_client.get_position(stock_code)
         
         if not position or position.get('can_sell', 0) <= 0:
             self.logger.warning(f"无可卖持仓: {stock_code}")
-            raise Exception(f"无可卖持仓: {stock_code}")
+            return
         
         sell_quantity = position.get('can_sell', 0)
         
         # 调用QMT卖出接口
-        # order_result = qmt_service.sell_stock(
-        #     stock_code=stock_code,
-        #     quantity=sell_quantity,
-        #     price=current_price,
-        #     order_type='market'
-        # )
-
-        from app.utils.qmt_client import qmt_client
-        order_result = qmt_client.sell(stock_code,sell_quantity,current_price,'market')
+        order_result = qmt_client.sell(stock_code, sell_quantity, current_price, 'market')
         
         if order_result.get('success'):
             order_id = str(order_result.get('order_id', ''))
             
+            # 更新监控任务的待处理委托状态
+            gs_strategy_db.update_monitor(
+                monitor_id,
+                pending_order_id=order_id,
+                pending_order_type='sell',
+                pending_order_status=OrderStatus.REPORTED,
+                pending_order_status_name='已报'
+            )
+            
             # 查找对应的未平仓交易记录
-            open_trade = db.query(GSTradeHistory).filter(
-                GSTradeHistory.monitor_id == monitor_id,
-                GSTradeHistory.status == 'open'
-            ).first()
+            open_trade = gs_strategy_db.get_open_trade(monitor_id)
             
             profit_loss = None
             profit_loss_pct = None
             
             if open_trade:
-                # 更新交易记录
-                open_trade.sell_price = current_price
-                open_trade.sell_quantity = sell_quantity
-                open_trade.sell_time = datetime.now()
-                open_trade.sell_order_id = order_id
-                open_trade.status = 'closed'
-                
-                # 计算盈亏
-                if open_trade.buy_price and open_trade.buy_quantity:
-                    open_trade.profit_loss = (current_price - open_trade.buy_price) * open_trade.buy_quantity
-                    open_trade.profit_loss_pct = ((current_price - open_trade.buy_price) / open_trade.buy_price) * 100
-                    profit_loss = open_trade.profit_loss
-                    profit_loss_pct = open_trade.profit_loss_pct
+                # 计算盈亏（预估，最终以成交回调为准）
+                buy_price = open_trade.get('buy_price', 0)
+                buy_quantity = open_trade.get('buy_quantity', 0)
+                if buy_price and buy_quantity:
+                    profit_loss = (current_price - buy_price) * buy_quantity
+                    profit_loss_pct = ((current_price - buy_price) / buy_price) * 100
                 
                 # 更新交易详情
-                trade_details = json.loads(open_trade.trade_details) if open_trade.trade_details else {}
+                trade_details = json.loads(open_trade.get('trade_details', '{}') or '{}')
                 trade_details['sell_signal'] = signal_data
-                open_trade.trade_details = json.dumps(trade_details, ensure_ascii=False)
+                
+                # 更新交易记录（初始状态为"已报"，等待回调更新最终状态）
+                gs_strategy_db.update_trade_history(open_trade['id'], {
+                    'sell_price': current_price,
+                    'sell_quantity': sell_quantity,
+                    'sell_time': datetime.now().isoformat(),
+                    'sell_order_id': order_id,
+                    'sell_order_status': OrderStatus.REPORTED,  # 初始状态：已报
+                    'sell_order_status_name': '已报',
+                    'status': 'closed',
+                    'profit_loss': profit_loss,
+                    'profit_loss_pct': profit_loss_pct,
+                    'trade_details': json.dumps(trade_details, ensure_ascii=False)
+                })
             else:
                 # 没有对应的买入记录，创建独立的卖出记录
-                trade = GSTradeHistory(
+                gs_strategy_db.add_trade_history(
                     monitor_id=monitor_id,
                     stock_code=stock_code,
                     stock_name=stock_name,
                     sell_price=current_price,
                     sell_quantity=sell_quantity,
-                    sell_time=datetime.now(),
+                    sell_time=datetime.now().isoformat(),
                     sell_order_id=order_id,
+                    sell_order_status=OrderStatus.REPORTED,  # 初始状态：已报
+                    sell_order_status_name='已报',
                     status='closed',
                     trade_details=json.dumps(signal_data, ensure_ascii=False)
                 )
-                db.add(trade)
-            
-            # QMT交易成功后必须立即提交，确保交易记录不丢失
-            db.commit()
             
             self.logger.info(f"卖出订单已提交: {stock_code}, 价格: {current_price}, 数量: {sell_quantity}")
             
-            # 发送通知（通知失败不影响交易记录）
+            # 发送通知
             try:
                 self._send_trade_notification(
                     stock_code=stock_code,
@@ -501,7 +701,7 @@ class GSScheduler:
             error_msg = order_result.get('error', '未知错误')
             self.logger.error(f"卖出订单失败: {stock_code}, 错误: {error_msg}")
             
-            # 发送失败通知（通知失败不影响异常抛出）
+            # 发送失败通知
             try:
                 self._send_trade_notification(
                     stock_code=stock_code,
@@ -515,9 +715,6 @@ class GSScheduler:
                 )
             except Exception as e:
                 self.logger.error(f"发送卖出失败通知失败: {e}")
-            
-            # 抛出异常触发事务回滚（回滚信号更新）
-            raise Exception(f"卖出订单失败: {error_msg}")
     
     def _send_trade_notification(self, stock_code: str, stock_name: str, action: str,
                                   price: float, quantity: int, order_id: str,
@@ -590,12 +787,11 @@ class GSScheduler:
         
         在系统重启后调用此方法，恢复之前处于running状态的监控任务
         """
-        db = SessionLocal()
+        from app.db.gs_strategy_db import gs_strategy_db
+        
         try:
             # 查询所有状态为running的监控任务
-            running_monitors = db.query(GSMonitorTask).filter(
-                GSMonitorTask.status == 'running'
-            ).all()
+            running_monitors = gs_strategy_db.get_running_monitors()
             
             if not running_monitors:
                 self.logger.info("没有需要恢复的监控任务")
@@ -607,27 +803,25 @@ class GSScheduler:
             for monitor in running_monitors:
                 try:
                     success = self.start_monitor(
-                        monitor_id=monitor.id,
-                        interval=monitor.interval,
-                        stock_code=monitor.stock_code,
-                        stock_name=monitor.stock_name
+                        monitor_id=monitor['id'],
+                        interval=monitor['interval'],
+                        stock_code=monitor['stock_code'],
+                        stock_name=monitor['stock_name']
                     )
                     
                     if success:
                         restored_count += 1
-                        self.logger.info(f"已恢复监控任务: {monitor.id} ({monitor.stock_code})")
+                        self.logger.info(f"已恢复监控任务: {monitor['id']} ({monitor['stock_code']})")
                     else:
-                        self.logger.warning(f"恢复监控任务失败: {monitor.id} ({monitor.stock_code})")
+                        self.logger.warning(f"恢复监控任务失败: {monitor['id']} ({monitor['stock_code']})")
                         
                 except Exception as e:
-                    self.logger.error(f"恢复监控任务异常 {monitor.id}: {e}")
+                    self.logger.error(f"恢复监控任务异常 {monitor['id']}: {e}")
             
             self.logger.info(f"监控任务恢复完成: 成功 {restored_count}/{len(running_monitors)}")
             
         except Exception as e:
             self.logger.error(f"恢复监控任务失败: {e}")
-        finally:
-            db.close()
     
     def stop_all_monitors(self):
         """

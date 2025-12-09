@@ -35,6 +35,13 @@ class GSMonitorTask(Base):
     execution_count = Column(Integer, default=0, comment="策略执行次数")
     last_signal = Column(String(20), comment="最后信号: buy/sell/hold")
     last_signal_time = Column(DateTime, comment="最后信号时间")
+    
+    # 当前委托状态（用于防止重复下单）
+    pending_order_id = Column(String(50), comment="待处理订单ID")
+    pending_order_type = Column(String(10), comment="待处理订单类型: buy/sell")
+    pending_order_status = Column(Integer, comment="待处理订单状态码")
+    pending_order_status_name = Column(String(20), comment="待处理订单状态名称")
+    
     created_at = Column(DateTime, server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime, onupdate=func.now(), comment="更新时间")
     
@@ -76,6 +83,13 @@ class GSTradeHistory(Base):
     
     # 状态
     status = Column(String(20), comment="状态: open(持仓中)/closed(已平仓)")
+    
+    # 委托状态
+    buy_order_status = Column(Integer, comment="买入委托状态码")
+    buy_order_status_name = Column(String(20), comment="买入委托状态名称")
+    sell_order_status = Column(Integer, comment="卖出委托状态码")
+    sell_order_status_name = Column(String(20), comment="卖出委托状态名称")
+    
     trade_details = Column(Text, comment="交易详情(JSON格式)")
     
     created_at = Column(DateTime, server_default=func.now(), comment="创建时间")

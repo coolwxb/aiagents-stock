@@ -440,4 +440,36 @@ export default {
   margin: 0;
   font-size: 14px;
 }
+
+/* 操作按钮样式 */
+::v-deep .el-table .cell {
+  overflow: visible;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+::v-deep .el-table__body-wrapper {
+  overflow: visible;
+}
+
+::v-deep .el-table--border td {
+  border-bottom: 1px solid #ebeef5;
+}
+
+/* 操作列按钮间距 */
+::v-deep .el-table td .cell .el-button {
+  margin-right: 12px;
+}
+
+::v-deep .el-table td .cell .el-button:last-child {
+  margin-right: 0;
+}
+
+::v-deep .el-popconfirm {
+  display: inline-block;
+}
+
+::v-deep .el-popconfirm .el-button {
+  margin-right: 0;
+}
 </style>
