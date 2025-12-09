@@ -815,26 +815,43 @@ class DataSourceManager:
 
 
 
+class _DataSourceManagerSingleton:
+    """数据源管理器单例包装器"""
+    _instance: DataSourceManager = None
+    
+    @classmethod
+    def get_instance(cls, config: dict = None) -> DataSourceManager:
+        """
+        获取数据源管理器单例实例
+        
+        Args:
+            config: 可选配置字典，首次创建时使用
+        
+        Returns:
+            DataSourceManager实例
+        """
+        if cls._instance is None:
+            cls._instance = DataSourceManager(config=config)
+        return cls._instance
+    
+    @classmethod
+    def reset(cls):
+        """重置单例（仅用于测试）"""
+        cls._instance = None
+
+
 def init_source_manager(config: dict = None) -> DataSourceManager:
     """
-    获取数据源管理器实例
+    获取数据源管理器实例（单例模式）
     
     Args:
-        config: 可选配置字典，如果不提供则使用全局实例
+        config: 可选配置字典，仅首次创建时生效
     
     Returns:
         DataSourceManager实例
     """
-    global data_source_manager
-    
-    if config is not None:
-        # 根据配置创建新实例
-        return DataSourceManager(config=config)
-    
-    # 使用全局实例（懒加载）
-    if data_source_manager is None:
-        data_source_manager = DataSourceManager()
-    
-    return data_source_manager
+    return _DataSourceManagerSingleton.get_instance(config)
 
-data_source_manager = None
+
+# 全局单例实例（懒加载）
+data_source_manager = _DataSourceManagerSingleton.get_instance()
