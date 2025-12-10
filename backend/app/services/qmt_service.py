@@ -131,20 +131,30 @@ class QMTEventBus:
         """
         从数据库加载 Redis 配置并初始化连接
         
+        数据库配置项:
+        - REDIS_ENABLED: 是否启用 ('true'/'false')
+        - REDIS_HOST: 主机地址 (默认 'localhost')
+        - REDIS_PORT: 端口 (默认 '6379')
+        - REDIS_PASSWORD: 密码 (可选)
+        - REDIS_DB: 数据库编号 (默认 '0')
+        
         Args:
             db: 数据库会话
         """
         try:
-            config_keys = ['REDIS_ENABLED', 'REDIS_URL']
+            config_keys = ['REDIS_ENABLED', 'REDIS_HOST', 'REDIS_PORT', 'REDIS_PASSWORD', 'REDIS_DB']
             configs = db.query(AppConfig).filter(AppConfig.key.in_(config_keys)).all()
             
             QMTEventBus._redis_config = {cfg.key: cfg.value for cfg in configs}
             
             # 设置默认值
-            QMTEventBus._redis_config.setdefault('REDIS_ENABLED', 'true')
-            QMTEventBus._redis_config.setdefault('REDIS_URL', 'redis://localhost:6379/0')
+            QMTEventBus._redis_config.setdefault('REDIS_ENABLED', 'false')
+            QMTEventBus._redis_config.setdefault('REDIS_HOST', 'localhost')
+            QMTEventBus._redis_config.setdefault('REDIS_PORT', '6379')
+            QMTEventBus._redis_config.setdefault('REDIS_PASSWORD', '')
+            QMTEventBus._redis_config.setdefault('REDIS_DB', '0')
             
-            self.logger.info(f"Redis 配置已从数据库加载: enabled={self.redis_enabled}")
+            self.logger.info(f"Redis 配置已从数据库加载: enabled={self.redis_enabled}, host={self.redis_host}")
             
             # 初始化 Redis 连接
             self._init_redis()
@@ -162,9 +172,31 @@ class QMTEventBus:
         return QMTEventBus._redis_config.get('REDIS_ENABLED', 'false').lower() == 'true'
     
     @property
-    def redis_url(self) -> str:
-        """获取 Redis URL"""
-        return QMTEventBus._redis_config.get('REDIS_URL', 'redis://localhost:6379/0')
+    def redis_host(self) -> str:
+        """获取 Redis 主机"""
+        return QMTEventBus._redis_config.get('REDIS_HOST', 'localhost')
+    
+    @property
+    def redis_port(self) -> int:
+        """获取 Redis 端口"""
+        try:
+            return int(QMTEventBus._redis_config.get('REDIS_PORT', '6379'))
+        except ValueError:
+            return 6379
+    
+    @property
+    def redis_password(self) -> Optional[str]:
+        """获取 Redis 密码"""
+        pwd = QMTEventBus._redis_config.get('REDIS_PASSWORD', '')
+        return pwd if pwd else None
+    
+    @property
+    def redis_db(self) -> int:
+        """获取 Redis 数据库编号"""
+        try:
+            return int(QMTEventBus._redis_config.get('REDIS_DB', '0'))
+        except ValueError:
+            return 0
     
     def _init_redis(self):
         """初始化 Redis 连接"""
@@ -177,8 +209,11 @@ class QMTEventBus:
             return
         
         try:
-            self._redis_client = redis.from_url(
-                self.redis_url,
+            self._redis_client = redis.Redis(
+                host=self.redis_host,
+                port=self.redis_port,
+                password=self.redis_password,
+                db=self.redis_db,
                 decode_responses=True,
                 socket_connect_timeout=5,
                 socket_timeout=5
@@ -186,8 +221,8 @@ class QMTEventBus:
             # 测试连接
             self._redis_client.ping()
             self._use_redis = True
-            self.logger.info(f"Redis 事件总线连接成功: {self.redis_url}")
-            print(f"✅ QMT事件总线 Redis 连接成功")
+            self.logger.info(f"Redis 事件总线连接成功: {self.redis_host}:{self.redis_port}")
+            print(f"✅ QMT事件总线 Redis 连接成功: {self.redis_host}:{self.redis_port}")
         except Exception as e:
             self.logger.warning(f"Redis 连接失败，降级为内存模式: {e}")
             print(f"⚠️ Redis 连接失败，QMT事件总线使用内存模式: {e}")
@@ -388,7 +423,8 @@ class QMTEventBus:
         return {
             'mode': 'redis' if self._use_redis else 'memory',
             'redis_enabled': self.redis_enabled,
-            'redis_url': self.redis_url if self._use_redis else None,
+            'redis_host': self.redis_host if self._use_redis else None,
+            'redis_port': self.redis_port if self._use_redis else None,
             'redis_connected': self._use_redis and self._redis_client is not None,
             'listener_running': self._redis_running,
             'subscriber_counts': subscriber_counts
