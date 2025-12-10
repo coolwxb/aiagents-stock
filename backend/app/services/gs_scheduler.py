@@ -62,6 +62,7 @@ class GSScheduler:
         Args:
             data: 订单状态数据，包含:
                 - order_id: 订单ID
+                - order_sysid: 柜台合同编号
                 - order_status: 状态码
                 - order_status_name: 状态名称
                 - is_final: 是否最终状态
@@ -74,13 +75,14 @@ class GSScheduler:
         
         try:
             order_id = str(data.get('order_id', ''))
+            order_sysid = str(data.get('order_sysid', ''))
             order_status = data.get('order_status')
             order_status_name = data.get('order_status_name', '')
             is_final = data.get('is_final', False)
             is_success = data.get('is_success', False)
             stock_code = data.get('stock_code', '')
             
-            self.logger.info(f"收到订单状态更新: order_id={order_id}, status={order_status}({order_status_name}), is_final={is_final}")
+            self.logger.info(f"收到订单状态更新: order_id={order_id},order_sysid={order_sysid}, status={order_status}({order_status_name}), is_final={is_final}")
             
             if not order_id:
                 return
@@ -103,6 +105,8 @@ class GSScheduler:
             if is_buy_order:
                 update_data['buy_order_status'] = order_status
                 update_data['buy_order_status_name'] = order_status_name
+                if order_sysid:
+                    update_data['buy_order_sysid'] = order_sysid
                 
                 # 如果买入成功，更新成交价格
                 if is_success:
@@ -117,6 +121,8 @@ class GSScheduler:
             elif is_sell_order:
                 update_data['sell_order_status'] = order_status
                 update_data['sell_order_status_name'] = order_status_name
+                if order_sysid:
+                    update_data['sell_order_sysid'] = order_sysid
                 
                 # 如果卖出成功，更新成交价格和盈亏
                 if is_success:
@@ -144,9 +150,13 @@ class GSScheduler:
                     'pending_order_status': order_status,
                     'pending_order_status_name': order_status_name
                 }
+                # 更新柜台合同编号
+                if order_sysid:
+                    monitor_update['pending_order_sysid'] = order_sysid
                 # 如果是最终状态，清除待处理订单信息
                 if is_final:
                     monitor_update['pending_order_id'] = None
+                    monitor_update['pending_order_sysid'] = None
                     monitor_update['pending_order_type'] = None
                     monitor_update['pending_order_status'] = None
                     monitor_update['pending_order_status_name'] = None
@@ -204,6 +214,7 @@ class GSScheduler:
                 gs_strategy_db.update_monitor(
                     monitor_id,
                     pending_order_id=None,
+                    pending_order_sysid=None,
                     pending_order_type=None,
                     pending_order_status=None,
                     pending_order_status_name=None

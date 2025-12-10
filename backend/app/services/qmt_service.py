@@ -629,6 +629,7 @@ class QMTService:
                     qmt_event_bus.publish(QMTEventBus.EVENT_TRADE, {
                         'account_id': trade.account_id,
                         'order_id': trade.order_id,
+                        'order_sysid': trade.order_sysid,
                         'stock_code': trade.stock_code,
                         'traded_volume': getattr(trade, 'traded_volume', 0),
                         'traded_price': getattr(trade, 'traded_price', 0),
@@ -640,6 +641,7 @@ class QMTService:
                     print(f"on_order_error: order_id={order_error.order_id}, error_id={order_error.error_id}, msg={order_error.error_msg}")
                     qmt_event_bus.publish(QMTEventBus.EVENT_ORDER_ERROR, {
                         'order_id': order_error.order_id,
+                        'order_sysid': order_error.order_sysid,
                         'error_id': order_error.error_id,
                         'error_msg': order_error.error_msg
                     })
@@ -649,6 +651,7 @@ class QMTService:
                     print(f"on_cancel_error: order_id={cancel_error.order_id}, error_id={cancel_error.error_id}, msg={cancel_error.error_msg}")
                     qmt_event_bus.publish(QMTEventBus.EVENT_CANCEL_ERROR, {
                         'order_id': cancel_error.order_id,
+                        'order_sysid': cancel_error.order_sysid,
                         'error_id': cancel_error.error_id,
                         'error_msg': cancel_error.error_msg
                     })

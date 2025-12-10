@@ -65,6 +65,7 @@ class GSStrategyDatabase:
             last_signal TEXT,
             last_signal_time TEXT,
             pending_order_id TEXT,
+            pending_order_sysid TEXT,
             pending_order_type TEXT,
             pending_order_status INTEGER,
             pending_order_status_name TEXT,
@@ -77,6 +78,10 @@ class GSStrategyDatabase:
         # 尝试添加监控任务表的新字段
         try:
             cursor.execute('ALTER TABLE gs_monitor_tasks ADD COLUMN pending_order_id TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE gs_monitor_tasks ADD COLUMN pending_order_sysid TEXT')
         except sqlite3.OperationalError:
             pass
         try:
@@ -107,12 +112,14 @@ class GSStrategyDatabase:
             buy_quantity INTEGER,
             buy_time TEXT,
             buy_order_id TEXT,
+            buy_order_sysid TEXT,
             buy_order_status INTEGER,
             buy_order_status_name TEXT,
             sell_price REAL,
             sell_quantity INTEGER,
             sell_time TEXT,
             sell_order_id TEXT,
+            sell_order_sysid TEXT,
             sell_order_status INTEGER,
             sell_order_status_name TEXT,
             profit_loss REAL,
@@ -135,11 +142,19 @@ class GSStrategyDatabase:
         except sqlite3.OperationalError:
             pass
         try:
+            cursor.execute('ALTER TABLE gs_trade_history ADD COLUMN buy_order_sysid TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
             cursor.execute('ALTER TABLE gs_trade_history ADD COLUMN sell_order_status INTEGER')
         except sqlite3.OperationalError:
             pass
         try:
             cursor.execute('ALTER TABLE gs_trade_history ADD COLUMN sell_order_status_name TEXT')
+        except sqlite3.OperationalError:
+            pass
+        try:
+            cursor.execute('ALTER TABLE gs_trade_history ADD COLUMN sell_order_sysid TEXT')
         except sqlite3.OperationalError:
             pass
         
@@ -344,7 +359,7 @@ class GSStrategyDatabase:
             
             allowed_fields = ['interval', 'status', 'started_at', 'execution_count', 
                               'last_signal', 'last_signal_time',
-                              'pending_order_id', 'pending_order_type', 
+                              'pending_order_id', 'pending_order_sysid', 'pending_order_type', 
                               'pending_order_status', 'pending_order_status_name']
             
             for key, value in kwargs.items():
@@ -629,9 +644,11 @@ class GSStrategyDatabase:
     def add_trade_history(self, monitor_id: int, stock_code: str, stock_name: str,
                           buy_price: float = None, buy_quantity: int = None,
                           buy_time: str = None, buy_order_id: str = None,
+                          buy_order_sysid: str = None,
                           buy_order_status: int = None, buy_order_status_name: str = None,
                           sell_price: float = None, sell_quantity: int = None,
                           sell_time: str = None, sell_order_id: str = None,
+                          sell_order_sysid: str = None,
                           sell_order_status: int = None, sell_order_status_name: str = None,
                           status: str = 'open', trade_details: str = None) -> int:
         """
@@ -645,12 +662,14 @@ class GSStrategyDatabase:
             buy_quantity: 买入数量
             buy_time: 买入时间
             buy_order_id: 买入订单ID
+            buy_order_sysid: 买入柜台合同编号
             buy_order_status: 买入委托状态码
             buy_order_status_name: 买入委托状态名称
             sell_price: 卖出价格
             sell_quantity: 卖出数量
             sell_time: 卖出时间
             sell_order_id: 卖出订单ID
+            sell_order_sysid: 卖出柜台合同编号
             sell_order_status: 卖出委托状态码
             sell_order_status_name: 卖出委托状态名称
             status: 状态
@@ -666,15 +685,15 @@ class GSStrategyDatabase:
             cursor.execute('''
             INSERT INTO gs_trade_history 
             (monitor_id, stock_code, stock_name, buy_price, buy_quantity, buy_time, buy_order_id,
-             buy_order_status, buy_order_status_name,
+             buy_order_sysid, buy_order_status, buy_order_status_name,
              sell_price, sell_quantity, sell_time, sell_order_id,
-             sell_order_status, sell_order_status_name,
+             sell_order_sysid, sell_order_status, sell_order_status_name,
              status, trade_details)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (monitor_id, stock_code, stock_name, buy_price, buy_quantity, buy_time, buy_order_id,
-                  buy_order_status, buy_order_status_name,
+                  buy_order_sysid, buy_order_status, buy_order_status_name,
                   sell_price, sell_quantity, sell_time, sell_order_id,
-                  sell_order_status, sell_order_status_name,
+                  sell_order_sysid, sell_order_status, sell_order_status_name,
                   status, trade_details))
             
             trade_id = cursor.lastrowid
@@ -706,8 +725,8 @@ class GSStrategyDatabase:
             values = []
             
             allowed_fields = ['buy_price', 'sell_price', 'sell_quantity', 'sell_time', 'sell_order_id',
-                              'buy_order_status', 'buy_order_status_name',
-                              'sell_order_status', 'sell_order_status_name',
+                              'buy_order_sysid', 'buy_order_status', 'buy_order_status_name',
+                              'sell_order_sysid', 'sell_order_status', 'sell_order_status_name',
                               'profit_loss', 'profit_loss_pct', 'status', 'trade_details']
             
             for key, value in data.items():
