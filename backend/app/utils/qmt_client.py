@@ -105,11 +105,11 @@ class QMTClient:
     
     def get_order_by_id(self, order_id: int) -> Optional[Dict]:
         """根据订单编号查询委托"""
-        return self._get(f"/orders/{order_id}")
+        return self._get(f"/orders/by-id/{order_id}")
     
     def get_orders_by_stock(self, stock_code: str) -> List[Dict]:
         """查询指定股票的所有委托"""
-        return self._get(f"/orders/stock/{stock_code}")
+        return self._get(f"/orders/by-stock/{stock_code}")
     
     def get_pending_orders(self) -> List[Dict]:
         """查询未完成的委托（非最终状态）"""
