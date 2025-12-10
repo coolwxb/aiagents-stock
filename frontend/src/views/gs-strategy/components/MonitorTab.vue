@@ -108,6 +108,18 @@
             <span v-else>--</span>
           </template>
         </el-table-column>
+        <el-table-column prop="pending_order_status_name" label="委托状态" min-width="100" align="center">
+          <template slot-scope="scope">
+            <el-tag
+              v-if="scope.row.pending_order_status_name"
+              :type="getOrderStatusTagType(scope.row.pending_order_status_name)"
+              size="small"
+            >
+              {{ scope.row.pending_order_status_name }}
+            </el-tag>
+            <span v-else>--</span>
+          </template>
+        </el-table-column>
         <el-table-column label="操作" min-width="200" align="center" fixed="right">
           <template slot-scope="scope">
             <el-button
@@ -130,7 +142,7 @@
             </el-button>
             <el-popconfirm
               title="确认移除该监控任务？"
-              @confirm="handleRemove(scope.row)"
+              @onConfirm="handleRemove(scope.row)"
             >
               <el-button
                 slot="reference"
@@ -271,6 +283,13 @@ export default {
     getSignalTagType(signal) {
       if (signal === 'buy') return 'success'
       if (signal === 'sell') return 'danger'
+      return 'info'
+    },
+    getOrderStatusTagType(status) {
+      if (!status) return 'info'
+      if (status.includes('成交') || status.includes('已成')) return 'success'
+      if (status.includes('废单') || status.includes('撤单') || status.includes('失败')) return 'danger'
+      if (status.includes('待') || status.includes('未成') || status.includes('部分')) return 'warning'
       return 'info'
     },
     async handleStart(row) {

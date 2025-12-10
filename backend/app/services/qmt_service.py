@@ -6,6 +6,7 @@ QMT交易服务
 import logging
 import time
 import threading
+import json
 from typing import Dict, List, Optional, Tuple, Callable, Any
 from datetime import datetime
 from enum import Enum
@@ -13,6 +14,13 @@ from sqlalchemy.orm import Session
 
 from app.models.config import AppConfig
 from app.utils.stock_code import add_market_suffix
+
+# Redis 导入
+try:
+    import redis
+    REDIS_AVAILABLE = True
+except ImportError:
+    REDIS_AVAILABLE = False
 
 
 class TradeAction(Enum):
@@ -68,8 +76,14 @@ class OrderStatus:
 
 class QMTEventBus:
     """
-    QMT事件总线 - 发布订阅模式
-    用于解耦回调和业务逻辑
+    QMT事件总线 - 基于Redis的发布订阅模式
+    用于解耦回调和业务逻辑，支持跨进程通信
+    
+    当 Redis 不可用时，自动降级为内存模式
+    
+    Redis 配置从数据库 app_config 表中获取:
+    - REDIS_ENABLED: 是否启用 Redis ('true'/'false')
+    - REDIS_URL: Redis 连接地址 (如 'redis://localhost:6379/0')
     """
     
     # 事件类型常量
@@ -80,6 +94,12 @@ class QMTEventBus:
     EVENT_DISCONNECTED = 'disconnected'      # 连接断开
     EVENT_ACCOUNT_STATUS = 'account_status'  # 账户状态
     
+    # Redis 频道前缀
+    CHANNEL_PREFIX = 'qmt:event:'
+    
+    # Redis 配置缓存
+    _redis_config = {}
+    
     _instance = None
     _lock = threading.Lock()
     
@@ -88,10 +108,162 @@ class QMTEventBus:
             with cls._lock:
                 if cls._instance is None:
                     cls._instance = super().__new__(cls)
-                    cls._instance._subscribers = {}  # {event_type: [callback, ...]}
-                    cls._instance._subscriber_lock = threading.Lock()
-                    cls._instance.logger = logging.getLogger(__name__)
+                    cls._instance._init_instance()
         return cls._instance
+    
+    def _init_instance(self):
+        """初始化实例"""
+        self._subscribers = {}  # 内存订阅者 {event_type: [callback, ...]}
+        self._subscriber_lock = threading.Lock()
+        self.logger = logging.getLogger(__name__)
+        
+        # Redis 相关
+        self._redis_client: Optional[redis.Redis] = None
+        self._redis_pubsub: Optional[redis.client.PubSub] = None
+        self._redis_listener_thread: Optional[threading.Thread] = None
+        self._redis_running = False
+        self._use_redis = False
+        
+        # 注意：不在这里初始化 Redis，等待 load_config 被调用
+        self.logger.info("QMT事件总线已初始化（内存模式），等待加载 Redis 配置")
+    
+    def load_config(self, db: Session):
+        """
+        从数据库加载 Redis 配置并初始化连接
+        
+        Args:
+            db: 数据库会话
+        """
+        try:
+            config_keys = ['REDIS_ENABLED', 'REDIS_URL']
+            configs = db.query(AppConfig).filter(AppConfig.key.in_(config_keys)).all()
+            
+            QMTEventBus._redis_config = {cfg.key: cfg.value for cfg in configs}
+            
+            # 设置默认值
+            QMTEventBus._redis_config.setdefault('REDIS_ENABLED', 'true')
+            QMTEventBus._redis_config.setdefault('REDIS_URL', 'redis://localhost:6379/0')
+            
+            self.logger.info(f"Redis 配置已从数据库加载: enabled={self.redis_enabled}")
+            
+            # 初始化 Redis 连接
+            self._init_redis()
+            
+        except Exception as e:
+            self.logger.error(f"加载 Redis 配置失败: {e}")
+            QMTEventBus._redis_config = {
+                'REDIS_ENABLED': 'false',
+                'REDIS_URL': 'redis://localhost:6379/0'
+            }
+    
+    @property
+    def redis_enabled(self) -> bool:
+        """获取 Redis 启用状态"""
+        return QMTEventBus._redis_config.get('REDIS_ENABLED', 'false').lower() == 'true'
+    
+    @property
+    def redis_url(self) -> str:
+        """获取 Redis URL"""
+        return QMTEventBus._redis_config.get('REDIS_URL', 'redis://localhost:6379/0')
+    
+    def _init_redis(self):
+        """初始化 Redis 连接"""
+        if not REDIS_AVAILABLE:
+            self.logger.warning("Redis 模块未安装，使用内存模式")
+            return
+        
+        if not self.redis_enabled:
+            self.logger.info("Redis 未启用，使用内存模式")
+            return
+        
+        try:
+            self._redis_client = redis.from_url(
+                self.redis_url,
+                decode_responses=True,
+                socket_connect_timeout=5,
+                socket_timeout=5
+            )
+            # 测试连接
+            self._redis_client.ping()
+            self._use_redis = True
+            self.logger.info(f"Redis 事件总线连接成功: {self.redis_url}")
+            print(f"✅ QMT事件总线 Redis 连接成功")
+        except Exception as e:
+            self.logger.warning(f"Redis 连接失败，降级为内存模式: {e}")
+            print(f"⚠️ Redis 连接失败，QMT事件总线使用内存模式: {e}")
+            self._redis_client = None
+            self._use_redis = False
+    
+    def _get_channel_name(self, event_type: str) -> str:
+        """获取 Redis 频道名称"""
+        return f"{self.CHANNEL_PREFIX}{event_type}"
+    
+    def _start_redis_listener(self):
+        """启动 Redis 订阅监听线程"""
+        if not self._use_redis or self._redis_running:
+            return
+        
+        try:
+            self._redis_pubsub = self._redis_client.pubsub()
+            self._redis_running = True
+            
+            def listener_loop():
+                """监听循环"""
+                while self._redis_running:
+                    try:
+                        message = self._redis_pubsub.get_message(timeout=1.0)
+                        if message and message['type'] == 'message':
+                            channel = message['channel']
+                            data_str = message['data']
+                            
+                            # 解析事件类型
+                            event_type = channel.replace(self.CHANNEL_PREFIX, '')
+                            
+                            # 解析数据
+                            try:
+                                data = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                self.logger.error(f"JSON 解析失败: {data_str}")
+                                continue
+                            
+                            # 调用本地订阅者
+                            self._notify_local_subscribers(event_type, data)
+                    except Exception as e:
+                        if self._redis_running:
+                            self.logger.error(f"Redis 监听异常: {e}")
+                            time.sleep(1)
+            
+            self._redis_listener_thread = threading.Thread(
+                target=listener_loop,
+                daemon=True,
+                name="QMTEventBus-RedisListener"
+            )
+            self._redis_listener_thread.start()
+            self.logger.info("Redis 事件监听线程已启动")
+        except Exception as e:
+            self.logger.error(f"启动 Redis 监听失败: {e}")
+            self._redis_running = False
+    
+    def _stop_redis_listener(self):
+        """停止 Redis 订阅监听"""
+        self._redis_running = False
+        if self._redis_pubsub:
+            try:
+                self._redis_pubsub.close()
+            except:
+                pass
+            self._redis_pubsub = None
+    
+    def _notify_local_subscribers(self, event_type: str, data: Dict):
+        """通知本地订阅者"""
+        with self._subscriber_lock:
+            subscribers = self._subscribers.get(event_type, []).copy()
+        
+        for callback in subscribers:
+            try:
+                threading.Thread(target=callback, args=(data,), daemon=True).start()
+            except Exception as e:
+                self.logger.error(f"本地回调执行失败 [{event_type}]: {e}")
     
     def subscribe(self, event_type: str, callback: Callable[[Dict], None]) -> None:
         """
@@ -107,6 +279,17 @@ class QMTEventBus:
             if callback not in self._subscribers[event_type]:
                 self._subscribers[event_type].append(callback)
                 self.logger.debug(f"订阅事件: {event_type}")
+        
+        # Redis 模式下订阅频道
+        if self._use_redis:
+            try:
+                channel = self._get_channel_name(event_type)
+                if self._redis_pubsub is None:
+                    self._start_redis_listener()
+                self._redis_pubsub.subscribe(channel)
+                self.logger.debug(f"Redis 订阅频道: {channel}")
+            except Exception as e:
+                self.logger.error(f"Redis 订阅失败: {e}")
     
     def unsubscribe(self, event_type: str, callback: Callable[[Dict], None]) -> None:
         """
@@ -121,51 +304,107 @@ class QMTEventBus:
                 if callback in self._subscribers[event_type]:
                     self._subscribers[event_type].remove(callback)
                     self.logger.debug(f"取消订阅: {event_type}")
+                
+                # 如果该事件类型没有订阅者了，取消 Redis 订阅
+                if self._use_redis and not self._subscribers[event_type]:
+                    try:
+                        channel = self._get_channel_name(event_type)
+                        if self._redis_pubsub:
+                            self._redis_pubsub.unsubscribe(channel)
+                    except Exception as e:
+                        self.logger.error(f"Redis 取消订阅失败: {e}")
     
     def publish(self, event_type: str, data: Dict) -> None:
         """
         发布事件（广播给所有订阅者）
         
+        Redis 模式：通过 Redis Pub/Sub 广播，支持跨进程
+        内存模式：直接通知本地订阅者
+        
         Args:
             event_type: 事件类型
             data: 事件数据
         """
-        with self._subscriber_lock:
-            subscribers = self._subscribers.get(event_type, []).copy()
-        
         # 添加事件元数据
         data['_event_type'] = event_type
         data['_timestamp'] = time.time()
         data['_datetime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        # 异步通知所有订阅者
-        for callback in subscribers:
+        if self._use_redis:
             try:
-                # 在新线程中执行回调，避免阻塞
-                threading.Thread(target=callback, args=(data,), daemon=True).start()
+                channel = self._get_channel_name(event_type)
+                message = json.dumps(data, ensure_ascii=False, default=str)
+                self._redis_client.publish(channel, message)
+                self.logger.debug(f"Redis 发布事件: {event_type}")
             except Exception as e:
-                self.logger.error(f"事件回调执行失败 [{event_type}]: {e}")
+                self.logger.error(f"Redis 发布失败，降级为本地通知: {e}")
+                self._notify_local_subscribers(event_type, data)
+        else:
+            # 内存模式：直接通知本地订阅者
+            self._notify_local_subscribers(event_type, data)
     
     def publish_sync(self, event_type: str, data: Dict) -> None:
         """
-        同步发布事件（在当前线程执行）
+        同步发布事件（在当前线程执行本地回调）
+        
+        注意：Redis 发布仍然是异步的，但本地回调会同步执行
         
         Args:
             event_type: 事件类型
             data: 事件数据
         """
-        with self._subscriber_lock:
-            subscribers = self._subscribers.get(event_type, []).copy()
-        
         data['_event_type'] = event_type
         data['_timestamp'] = time.time()
         data['_datetime'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Redis 模式下也发布到 Redis
+        if self._use_redis:
+            try:
+                channel = self._get_channel_name(event_type)
+                message = json.dumps(data, ensure_ascii=False, default=str)
+                self._redis_client.publish(channel, message)
+            except Exception as e:
+                self.logger.error(f"Redis 同步发布失败: {e}")
+        
+        # 同步执行本地回调
+        with self._subscriber_lock:
+            subscribers = self._subscribers.get(event_type, []).copy()
         
         for callback in subscribers:
             try:
                 callback(data)
             except Exception as e:
                 self.logger.error(f"事件回调执行失败 [{event_type}]: {e}")
+    
+    def is_redis_mode(self) -> bool:
+        """检查是否使用 Redis 模式"""
+        return self._use_redis
+    
+    def get_status(self) -> Dict:
+        """获取事件总线状态"""
+        with self._subscriber_lock:
+            subscriber_counts = {k: len(v) for k, v in self._subscribers.items()}
+        
+        return {
+            'mode': 'redis' if self._use_redis else 'memory',
+            'redis_enabled': self.redis_enabled,
+            'redis_url': self.redis_url if self._use_redis else None,
+            'redis_connected': self._use_redis and self._redis_client is not None,
+            'listener_running': self._redis_running,
+            'subscriber_counts': subscriber_counts
+        }
+    
+    def close(self):
+        """关闭事件总线"""
+        self._stop_redis_listener()
+        if self._redis_client:
+            try:
+                self._redis_client.close()
+            except:
+                pass
+            self._redis_client = None
+        self._use_redis = False
+        self.logger.info("QMT事件总线已关闭")
 
 
 # 全局事件总线实例

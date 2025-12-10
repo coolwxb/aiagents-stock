@@ -67,9 +67,10 @@ async def lifespan(app: FastAPI):
         init_source_manager(config_dict)
         print("✅ 数据源管理器初始化完成")
         
-        # 初始化QMT服务
-        from app.services.qmt_service import qmt_service
+        # 初始化QMT服务和事件总线
+        from app.services.qmt_service import qmt_service, qmt_event_bus
         qmt_service.load_config(db)
+        qmt_event_bus.load_config(db)
         print("✅ QMT服务配置加载完成")
         
         # 恢复GS策略监控任务
