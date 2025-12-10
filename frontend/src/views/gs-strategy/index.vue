@@ -67,12 +67,12 @@ export default {
         this.loading = false
       }
     },
-    handleAddToMonitor(stock) {
-      // Switch to monitor tab and trigger add
+    handleAddToMonitor() {
+      // Switch to monitor tab and refresh list
       this.activeTab = 'monitor'
       this.$nextTick(() => {
-        if (this.$refs.monitorTab) {
-          this.$refs.monitorTab.openAddDialog(stock)
+        if (this.$refs.monitorTab && typeof this.$refs.monitorTab.refresh === 'function') {
+          this.$refs.monitorTab.refresh()
         }
       })
     }
