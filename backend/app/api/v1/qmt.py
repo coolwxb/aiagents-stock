@@ -471,3 +471,319 @@ async def get_stock_kline(
         return success_response(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 委托查询 ====================
+
+@router.get("/orders")
+async def get_orders(
+    cancelable_only: bool = Query(default=False, description="是否只返回可撤单的委托")
+):
+    """
+    查询当日所有委托
+    
+    Args:
+        cancelable_only: 是否只返回可撤单的委托
+    
+    Returns:
+        委托列表，包含订单编号、股票代码、委托类型、数量、价格、状态等
+    """
+    try:
+        orders = qmt_service.get_orders(cancelable_only=cancelable_only)
+        return success_response(orders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/summary")
+async def get_orders_summary():
+    """
+    获取委托汇总信息
+    
+    Returns:
+        委托汇总，包含各状态数量、买卖统计、成交金额等
+    """
+    try:
+        summary = qmt_service.get_orders_summary()
+        return success_response(summary)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/pending")
+async def get_pending_orders():
+    """
+    查询未完成的委托（非最终状态）
+    
+    Returns:
+        未完成的委托列表
+    """
+    try:
+        orders = qmt_service.get_pending_orders()
+        return success_response(orders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/completed")
+async def get_completed_orders():
+    """
+    查询已完成的委托（最终状态）
+    
+    Returns:
+        已完成的委托列表
+    """
+    try:
+        orders = qmt_service.get_completed_orders()
+        return success_response(orders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/successful")
+async def get_successful_orders():
+    """
+    查询成交成功的委托
+    
+    Returns:
+        成交成功的委托列表
+    """
+    try:
+        orders = qmt_service.get_successful_orders()
+        return success_response(orders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/canceled")
+async def get_canceled_orders():
+    """
+    查询已撤销的委托
+    
+    Returns:
+        已撤销的委托列表
+    """
+    try:
+        orders = qmt_service.get_canceled_orders()
+        return success_response(orders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/failed")
+async def get_failed_orders():
+    """
+    查询废单
+    
+    Returns:
+        废单列表
+    """
+    try:
+        orders = qmt_service.get_failed_orders()
+        return success_response(orders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/cancelable")
+async def get_cancelable_orders():
+    """
+    查询可撤单的委托
+    
+    Returns:
+        可撤单的委托列表
+    """
+    try:
+        orders = qmt_service.get_cancelable_orders()
+        return success_response(orders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/by-id/{order_id}")
+async def get_order_by_id(order_id: int):
+    """
+    根据订单编号查询委托
+    
+    Args:
+        order_id: 订单编号（策略端生成）
+    
+    Returns:
+        委托信息
+    """
+    try:
+        order = qmt_service.get_order_by_id(order_id)
+        if order:
+            return success_response(order)
+        else:
+            return success_response(None, msg=f"未找到订单 {order_id}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/by-sysid/{order_sysid}")
+async def get_order_by_sysid(order_sysid: str):
+    """
+    根据柜台合同编号查询委托
+    
+    Args:
+        order_sysid: 柜台合同编号
+    
+    Returns:
+        委托信息
+    """
+    try:
+        order = qmt_service.get_order_by_sysid(order_sysid)
+        if order:
+            return success_response(order)
+        else:
+            return success_response(None, msg=f"未找到柜台合同编号为 {order_sysid} 的订单")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/by-stock/{stock_code}")
+async def get_orders_by_stock(stock_code: str):
+    """
+    查询指定股票的所有委托
+    
+    Args:
+        stock_code: 股票代码（如：600519 或 600519.SH）
+    
+    Returns:
+        该股票的委托列表
+    """
+    try:
+        orders = qmt_service.get_orders_by_stock(stock_code)
+        return success_response(orders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/orders/by-status/{status}")
+async def get_orders_by_status(status: int):
+    """
+    查询指定状态的委托
+    
+    Args:
+        status: 委托状态码
+            - 48: 未报
+            - 49: 待报
+            - 50: 已报
+            - 51: 已报待撤
+            - 52: 部成待撤
+            - 53: 部撤
+            - 54: 已撤
+            - 55: 部成
+            - 56: 已成
+            - 57: 废单
+    
+    Returns:
+        指定状态的委托列表
+    """
+    try:
+        orders = qmt_service.get_orders_by_status(status)
+        return success_response(orders)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 撤单接口 ====================
+
+@router.post("/orders/{order_id}/cancel")
+async def cancel_order(order_id: int):
+    """
+    撤销委托
+    
+    Args:
+        order_id: 订单编号（策略端生成）
+    
+    Returns:
+        撤单结果
+    """
+    try:
+        result = qmt_service.cancel_order(order_id)
+        if result.get("success"):
+            return success_response(result, msg="撤单请求已提交")
+        else:
+            return error_response(msg=result.get("error", "撤单失败"), code=400, data=result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/orders/cancel-by-sysid/{order_sysid}")
+async def cancel_order_by_sysid(order_sysid: str):
+    """
+    根据柜台合同编号撤销委托
+    
+    Args:
+        order_sysid: 柜台合同编号
+    
+    Returns:
+        撤单结果
+    """
+    try:
+        result = qmt_service.cancel_order_by_sysid(order_sysid)
+        if result.get("success"):
+            return success_response(result, msg="撤单请求已提交")
+        else:
+            return error_response(msg=result.get("error", "撤单失败"), code=400, data=result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/orders/cancel-by-stock/{stock_code}")
+async def cancel_orders_by_stock(stock_code: str):
+    """
+    撤销指定股票的所有可撤委托
+    
+    Args:
+        stock_code: 股票代码
+    
+    Returns:
+        批量撤单结果
+    """
+    try:
+        result = qmt_service.cancel_orders_by_stock(stock_code)
+        if result.get("success"):
+            return success_response(result, msg=result.get("message", "撤单完成"))
+        else:
+            return error_response(msg=result.get("message", "撤单失败"), code=400, data=result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/orders/cancel-all")
+async def cancel_all_orders():
+    """
+    撤销所有可撤委托
+    
+    Returns:
+        批量撤单结果
+    """
+    try:
+        result = qmt_service.cancel_all_orders()
+        if result.get("success"):
+            return success_response(result, msg=result.get("message", "撤单完成"))
+        else:
+            return error_response(msg=result.get("message", "撤单失败"), code=400, data=result)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==================== 事件总线状态 ====================
+
+@router.get("/event-bus/status")
+async def get_event_bus_status():
+    """
+    获取QMT事件总线状态
+    
+    Returns:
+        事件总线状态，包含模式（redis/memory）、连接状态、订阅者数量等
+    """
+    try:
+        from app.services.qmt_service import qmt_event_bus
+        status = qmt_event_bus.get_status()
+        return success_response(status)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
