@@ -12,6 +12,7 @@ from enum import Enum
 from sqlalchemy.orm import Session
 
 from app.models.config import AppConfig
+from app.utils.stock_code import add_market_suffix
 
 
 class TradeAction(Enum):
@@ -827,13 +828,10 @@ class QMTService:
         if '.' in stock_code:
             return stock_code
         
-        # 沪市：6开头
-        if stock_code.startswith('6'):
-            return f"{stock_code}.SH"
-        # 深市：0、3开头
-        elif stock_code.startswith(('0', '3')):
-            return f"{stock_code}.SZ"
-        else:
+        try:
+            return add_market_suffix(stock_code)
+        except (ValueError, TypeError):
+            # 无法识别的代码，原样返回
             return stock_code
     
     def _init_whole_quote_subscribe(self):

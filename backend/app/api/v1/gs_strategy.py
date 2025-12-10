@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.api.response import success_response, error_response
 from app.dependencies import get_database
 from app.services.gs_strategy_service import GSStrategyService
+from app.utils.stock_code import remove_market_suffix
 
 router = APIRouter()
 
@@ -23,13 +24,23 @@ class StockPoolCreate(BaseModel):
     
     @validator('stock_code')
     def validate_stock_code(cls, v):
-        """验证股票代码格式（A股：6位数字，以0/3/6开头）"""
+        """验证股票代码格式
+        支持：
+        - A股：以0/3/6开头的6位数字
+        - ETF/LOF基金：以5开头的6位数字（如513090香港证券ETF）
+        - 科创板：以688开头的6位数字
+        - 创业板：以300/301开头的6位数字
+        """
         if not v:
             raise ValueError('股票代码不能为空')
         # 去除可能的后缀（如.SH, .SZ）
-        code = v.split('.')[0]
-        if not re.match(r'^[036]\d{5}$', code):
-            raise ValueError('股票代码格式无效，应为6位数字且以0/3/6开头')
+        try:
+            code = remove_market_suffix(v)
+        except (ValueError, TypeError):
+            code = v.split('.')[0] if '.' in v else v
+        # 支持更多类型：0开头(深市主板)、3开头(创业板)、5开头(ETF/LOF)、6开头(沪市)
+        if not re.match(r'^[03568]\d{5}$', code):
+            raise ValueError('股票代码格式无效，应为6位数字（支持A股、ETF、科创板等）')
         return v
 
 

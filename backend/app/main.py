@@ -141,12 +141,21 @@ async def http_exception_handler(request: Request, exc: HTTPException):
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """统一请求参数校验错误"""
+    # 将错误信息转换为可JSON序列化的格式
+    errors = []
+    for error in exc.errors():
+        err_copy = dict(error)
+        # 处理 ctx 中可能包含的不可序列化对象（如 ValueError）
+        if 'ctx' in err_copy and 'error' in err_copy['ctx']:
+            err_copy['ctx']['error'] = str(err_copy['ctx']['error'])
+        errors.append(err_copy)
+    
     return JSONResponse(
         status_code=422,
         content={
             "code": 422,
             "msg": "请求参数校验失败",
-            "data": exc.errors(),
+            "data": errors,
         },
     )
 

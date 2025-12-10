@@ -6,6 +6,7 @@
 import os
 import pandas as pd
 from datetime import datetime, timedelta
+from app.utils.stock_code import add_market_suffix,remove_market_suffix
 
 
 
@@ -110,7 +111,7 @@ class DataSourceManager:
             import pandas as pd
 
             if qmt_service.xtdata_module:
-                xt_code = self._convert_to_ts_code(symbol)
+                xt_code = add_market_suffix(symbol)
                 print(f"[QMT] 正在获取 {symbol} 的历史数据（{xt_code}）...")
 
                 # 确保已连接
@@ -235,7 +236,7 @@ class DataSourceManager:
                 print(f"[Tushare] 正在获取 {symbol} 的历史数据（备用数据源）...")
                 
                 # 转换股票代码格式（添加市场后缀）
-                ts_code = self._convert_to_ts_code(symbol)
+                ts_code = add_market_suffix(symbol)
                 
                 # 转换复权类型
                 adj_dict = {'qfq': 'qfq', 'hfq': 'hfq', '': None}
@@ -367,7 +368,7 @@ class DataSourceManager:
             try:
                 print(f"[Tushare] 正在获取 {symbol} 的基本信息（备用数据源）...")
                 
-                ts_code = self._convert_to_ts_code(symbol)
+                ts_code = add_market_suffix(symbol)
                 df = self.tushare_api.stock_basic(
                     ts_code=ts_code,
                     fields='ts_code,name,area,industry,market,list_date'
@@ -494,7 +495,7 @@ class DataSourceManager:
             try:
                 print(f"[Tushare] 正在获取 {symbol} 的实时行情（备用数据源）...")
                 
-                ts_code = self._convert_to_ts_code(symbol)
+                ts_code = add_market_suffix(symbol)
                 df = self.tushare_api.daily(
                     ts_code=ts_code,
                     start_date=datetime.now().strftime('%Y%m%d'),
@@ -632,7 +633,7 @@ class DataSourceManager:
             try:
                 print(f"[Tushare] 正在获取 {symbol} 的财务数据（备用数据源）...")
                 
-                ts_code = self._convert_to_ts_code(symbol)
+                ts_code = add_market_suffix(symbol)
                 
                 if report_type == 'income':
                     df = self.tushare_api.income(ts_code=ts_code)
@@ -651,47 +652,6 @@ class DataSourceManager:
         
         return None
     
-    def _convert_to_ts_code(self, symbol):
-        """
-        将6位股票代码转换为tushare格式（带市场后缀）
-        
-        Args:
-            symbol: 6位股票代码
-            
-        Returns:
-            str: tushare格式代码（如：000001.SZ）
-        """
-        if not symbol or len(symbol) != 6:
-            return symbol
-        
-        # 根据代码判断市场
-        if symbol.startswith('6'):
-            # 上海主板
-            return f"{symbol}.SH"
-        elif symbol.startswith('0') or symbol.startswith('3'):
-            # 深圳主板和创业板
-            return f"{symbol}.SZ"
-        elif symbol.startswith('8') or symbol.startswith('4'):
-            # 北交所
-            return f"{symbol}.BJ"
-        else:
-            # 默认深圳
-            return f"{symbol}.SZ"
-    
-    def _convert_from_ts_code(self, ts_code):
-        """
-        将tushare格式代码转换为6位代码
-        
-        Args:
-            ts_code: tushare格式代码（如：000001.SZ）
-            
-        Returns:
-            str: 6位股票代码
-        """
-        if '.' in ts_code:
-            return ts_code.split('.')[0]
-        return ts_code
-
     def _init_mysql(self):
         """初始化MySQL配置"""
         if not self.mysql_enabled:

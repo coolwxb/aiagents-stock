@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_
 
 from app.models.sector import Sector, StockInstrument, SectorStock
+from app.utils.stock_code import add_market_suffix
 
 logger = logging.getLogger(__name__)
 
@@ -359,13 +360,10 @@ class DataManagementService:
         if '.' in stock_code:
             return stock_code
         
-        if stock_code.startswith('6'):
-            return f"{stock_code}.SH"
-        elif stock_code.startswith('0') or stock_code.startswith('3'):
-            return f"{stock_code}.SZ"
-        elif stock_code.startswith('8') or stock_code.startswith('4'):
-            return f"{stock_code}.BJ"
-        else:
+        try:
+            return add_market_suffix(stock_code)
+        except (ValueError, TypeError):
+            # 无法识别的代码，默认使用SH后缀
             return f"{stock_code}.SH"
     
     async def get_sectors(self, page: int = 1, page_size: int = 20, category: Optional[str] = None) -> Dict:
