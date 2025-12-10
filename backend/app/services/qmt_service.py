@@ -1682,6 +1682,461 @@ class QMTService:
             'description': '未知报表类型',
             'main_fields': []
         })
+    
+    # ==================== 委托查询相关方法 ====================
+    # 参考文档: https://dict.thinktrader.net/nativeApi/xttrader.html?id=T87jC8#%E5%A7%94%E6%89%98%E6%9F%A5%E8%AF%A2
+    
+    def get_orders(self, cancelable_only: bool = False) -> List[Dict]:
+        """
+        查询当日所有委托
+        
+        参考文档: https://dict.thinktrader.net/nativeApi/xttrader.html?id=T87jC8#%E5%A7%94%E6%89%98%E6%9F%A5%E8%AF%A2
+        
+        XtOrder 委托结构体字段:
+        - account_id: str - 资金账号
+        - stock_code: str - 证券代码（如：600519.SH）
+        - order_id: int - 订单编号（策略端生成）
+        - order_sysid: str - 柜台合同编号（柜台生成）
+        - order_time: int - 报单时间（时间戳）
+        - order_type: int - 委托类型（23:买入, 24:卖出）
+        - order_volume: int - 委托数量
+        - price_type: int - 报价类型
+        - price: float - 委托价格
+        - traded_volume: int - 成交数量
+        - traded_price: float - 成交均价
+        - order_status: int - 委托状态（参见 OrderStatus 类）
+        - status_msg: str - 委托状态描述
+        - strategy_name: str - 策略名称
+        - order_remark: str - 委托备注
+        
+        Args:
+            cancelable_only: 是否只返回可撤单的委托
+        
+        Returns:
+            委托列表，每个委托为字典格式
+        """
+        if not self.is_connected():
+            self.logger.warning("QMT未连接，无法查询委托")
+            return []
+        
+        try:
+            # 使用 query_stock_orders 查询委托（官方接口）
+            orders = QMTService._xttrader.query_stock_orders(
+                QMTService._account,
+                cancelable_only
+            )
+            
+            if not orders:
+                return []
+            
+            result = []
+            for order in orders:
+                # 获取股票名称
+                stock_name = ''
+                stock_code = getattr(order, 'stock_code', '')
+                if stock_code and self.xtdata_module:
+                    try:
+                        instrument_detail = self.xtdata_module.get_instrument_detail(stock_code)
+                        if instrument_detail:
+                            stock_name = instrument_detail.get('InstrumentName', '')
+                    except Exception as e:
+                        self.logger.debug(f"获取{stock_code}名称失败: {e}")
+                
+                # 解析委托类型
+                order_type_code = getattr(order, 'order_type', 0)
+                order_type_name = '买入' if order_type_code == 23 else ('卖出' if order_type_code == 24 else f'未知({order_type_code})')
+                
+                # 解析委托状态
+                order_status = getattr(order, 'order_status', 255)
+                
+                # 格式化委托时间
+                order_time = getattr(order, 'order_time', 0)
+                order_time_str = ''
+                if order_time > 0:
+                    try:
+                        order_time_str = datetime.fromtimestamp(order_time).strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        order_time_str = str(order_time)
+                
+                result.append({
+                    'account_id': getattr(order, 'account_id', ''),
+                    'stock_code': stock_code,
+                    'stock_name': stock_name,
+                    'order_id': getattr(order, 'order_id', 0),
+                    'order_sysid': getattr(order, 'order_sysid', ''),
+                    'order_time': order_time,
+                    'order_time_str': order_time_str,
+                    'order_type': order_type_code,
+                    'order_type_name': order_type_name,
+                    'order_volume': getattr(order, 'order_volume', 0),
+                    'price_type': getattr(order, 'price_type', 0),
+                    'price': getattr(order, 'price', 0),
+                    'traded_volume': getattr(order, 'traded_volume', 0),
+                    'traded_price': getattr(order, 'traded_price', 0),
+                    'order_status': order_status,
+                    'order_status_name': OrderStatus.get_name(order_status),
+                    'is_final': OrderStatus.is_final(order_status),
+                    'is_success': OrderStatus.is_success(order_status),
+                    'status_msg': getattr(order, 'status_msg', ''),
+                    'strategy_name': getattr(order, 'strategy_name', ''),
+                    'order_remark': getattr(order, 'order_remark', '')
+                })
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"查询委托失败: {e}")
+            return []
+    
+    def get_cancelable_orders(self) -> List[Dict]:
+        """
+        查询当日可撤委托
+        
+        Returns:
+            可撤委托列表
+        """
+        return self.get_orders(cancelable_only=True)
+    
+    def get_order_by_id(self, order_id: int) -> Optional[Dict]:
+        """
+        根据订单编号查询委托
+        
+        Args:
+            order_id: 订单编号（策略端生成的 order_id）
+        
+        Returns:
+            委托信息字典，如果未找到返回 None
+        """
+        orders = self.get_orders()
+        for order in orders:
+            if order.get('order_id') == order_id:
+                return order
+        return None
+    
+    def get_order_by_sysid(self, order_sysid: str) -> Optional[Dict]:
+        """
+        根据柜台合同编号查询委托
+        
+        Args:
+            order_sysid: 柜台合同编号
+        
+        Returns:
+            委托信息字典，如果未找到返回 None
+        """
+        orders = self.get_orders()
+        for order in orders:
+            if order.get('order_sysid') == order_sysid:
+                return order
+        return None
+    
+    def get_orders_by_stock(self, stock_code: str) -> List[Dict]:
+        """
+        查询指定股票的所有委托
+        
+        Args:
+            stock_code: 股票代码（如：600519 或 600519.SH）
+        
+        Returns:
+            该股票的委托列表
+        """
+        full_code = self._format_stock_code(stock_code)
+        orders = self.get_orders()
+        
+        result = []
+        for order in orders:
+            order_stock_code = order.get('stock_code', '')
+            # 匹配完整代码或原始代码
+            if order_stock_code == full_code or order_stock_code == stock_code:
+                result.append(order)
+        
+        return result
+    
+    def get_orders_by_status(self, status: int) -> List[Dict]:
+        """
+        查询指定状态的委托
+        
+        Args:
+            status: 委托状态码（参见 OrderStatus 类）
+                - 48: 未报
+                - 49: 待报
+                - 50: 已报
+                - 51: 已报待撤
+                - 52: 部成待撤
+                - 53: 部撤
+                - 54: 已撤
+                - 55: 部成
+                - 56: 已成
+                - 57: 废单
+        
+        Returns:
+            指定状态的委托列表
+        """
+        orders = self.get_orders()
+        return [order for order in orders if order.get('order_status') == status]
+    
+    def get_pending_orders(self) -> List[Dict]:
+        """
+        查询未完成的委托（非最终状态）
+        
+        Returns:
+            未完成的委托列表
+        """
+        orders = self.get_orders()
+        return [order for order in orders if not order.get('is_final', False)]
+    
+    def get_completed_orders(self) -> List[Dict]:
+        """
+        查询已完成的委托（最终状态）
+        
+        Returns:
+            已完成的委托列表
+        """
+        orders = self.get_orders()
+        return [order for order in orders if order.get('is_final', False)]
+    
+    def get_successful_orders(self) -> List[Dict]:
+        """
+        查询成交成功的委托
+        
+        Returns:
+            成交成功的委托列表
+        """
+        return self.get_orders_by_status(OrderStatus.SUCCEEDED)
+    
+    def get_canceled_orders(self) -> List[Dict]:
+        """
+        查询已撤销的委托
+        
+        Returns:
+            已撤销的委托列表
+        """
+        return self.get_orders_by_status(OrderStatus.CANCELED)
+    
+    def get_failed_orders(self) -> List[Dict]:
+        """
+        查询废单
+        
+        Returns:
+            废单列表
+        """
+        return self.get_orders_by_status(OrderStatus.JUNK)
+    
+    def get_orders_summary(self) -> Dict:
+        """
+        获取委托汇总信息
+        
+        Returns:
+            委托汇总字典，包含各状态的委托数量和统计信息
+        """
+        orders = self.get_orders()
+        
+        # 统计各状态数量
+        status_counts = {}
+        for order in orders:
+            status = order.get('order_status', 255)
+            status_name = OrderStatus.get_name(status)
+            status_counts[status_name] = status_counts.get(status_name, 0) + 1
+        
+        # 统计买卖方向
+        buy_count = sum(1 for o in orders if o.get('order_type') == 23)
+        sell_count = sum(1 for o in orders if o.get('order_type') == 24)
+        
+        # 统计成交金额
+        total_traded_amount = sum(
+            o.get('traded_volume', 0) * o.get('traded_price', 0) 
+            for o in orders
+        )
+        
+        return {
+            'total_count': len(orders),
+            'pending_count': len([o for o in orders if not o.get('is_final', False)]),
+            'completed_count': len([o for o in orders if o.get('is_final', False)]),
+            'success_count': len([o for o in orders if o.get('is_success', False)]),
+            'buy_count': buy_count,
+            'sell_count': sell_count,
+            'total_traded_amount': total_traded_amount,
+            'status_counts': status_counts,
+            'cancelable_count': len(self.get_cancelable_orders())
+        }
+    
+    def cancel_order(self, order_id: int) -> Dict:
+        """
+        撤销委托
+        
+        参考文档: https://dict.thinktrader.net/nativeApi/xttrader.html?id=T87jC8#%E6%92%A4%E5%8D%95
+        
+        Args:
+            order_id: 订单编号（策略端生成的 order_id）
+        
+        Returns:
+            撤单结果字典
+        """
+        if not self.is_connected():
+            return {
+                'success': False,
+                'error': 'QMT未连接'
+            }
+        
+        try:
+            # 先查询订单是否存在且可撤
+            order = self.get_order_by_id(order_id)
+            if not order:
+                return {
+                    'success': False,
+                    'error': f'未找到订单 {order_id}'
+                }
+            
+            if order.get('is_final', False):
+                return {
+                    'success': False,
+                    'error': f'订单已处于最终状态（{order.get("order_status_name")}），无法撤单'
+                }
+            
+            # 执行撤单
+            result = QMTService._xttrader.cancel_order_stock(
+                QMTService._account,
+                order_id
+            )
+            
+            # cancel_order_stock 返回: 成功返回0, 失败返回-1
+            if result == 0:
+                self.logger.info(f"撤单请求已提交: order_id={order_id}")
+                return {
+                    'success': True,
+                    'order_id': order_id,
+                    'message': '撤单请求已提交，请通过事件总线订阅撤单结果'
+                }
+            else:
+                self.logger.error(f"撤单请求失败: order_id={order_id}, result={result}")
+                return {
+                    'success': False,
+                    'error': f'撤单请求失败，返回码: {result}'
+                }
+                
+        except Exception as e:
+            self.logger.error(f"撤单失败 order_id={order_id}: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def cancel_order_by_sysid(self, order_sysid: str) -> Dict:
+        """
+        根据柜台合同编号撤销委托
+        
+        Args:
+            order_sysid: 柜台合同编号
+        
+        Returns:
+            撤单结果字典
+        """
+        # 先查找对应的 order_id
+        order = self.get_order_by_sysid(order_sysid)
+        if not order:
+            return {
+                'success': False,
+                'error': f'未找到柜台合同编号为 {order_sysid} 的订单'
+            }
+        
+        return self.cancel_order(order.get('order_id'))
+    
+    def cancel_all_orders(self) -> Dict:
+        """
+        撤销所有可撤委托
+        
+        Returns:
+            批量撤单结果字典
+        """
+        cancelable_orders = self.get_cancelable_orders()
+        
+        if not cancelable_orders:
+            return {
+                'success': True,
+                'message': '没有可撤的委托',
+                'canceled_count': 0,
+                'failed_count': 0,
+                'results': []
+            }
+        
+        results = []
+        canceled_count = 0
+        failed_count = 0
+        
+        for order in cancelable_orders:
+            order_id = order.get('order_id')
+            result = self.cancel_order(order_id)
+            results.append({
+                'order_id': order_id,
+                'stock_code': order.get('stock_code'),
+                **result
+            })
+            
+            if result.get('success'):
+                canceled_count += 1
+            else:
+                failed_count += 1
+        
+        return {
+            'success': failed_count == 0,
+            'message': f'撤单完成: 成功 {canceled_count} 笔, 失败 {failed_count} 笔',
+            'canceled_count': canceled_count,
+            'failed_count': failed_count,
+            'results': results
+        }
+    
+    def cancel_orders_by_stock(self, stock_code: str) -> Dict:
+        """
+        撤销指定股票的所有可撤委托
+        
+        Args:
+            stock_code: 股票代码
+        
+        Returns:
+            批量撤单结果字典
+        """
+        full_code = self._format_stock_code(stock_code)
+        cancelable_orders = self.get_cancelable_orders()
+        
+        # 筛选指定股票的委托
+        target_orders = [
+            o for o in cancelable_orders 
+            if o.get('stock_code') == full_code or o.get('stock_code') == stock_code
+        ]
+        
+        if not target_orders:
+            return {
+                'success': True,
+                'message': f'股票 {stock_code} 没有可撤的委托',
+                'canceled_count': 0,
+                'failed_count': 0,
+                'results': []
+            }
+        
+        results = []
+        canceled_count = 0
+        failed_count = 0
+        
+        for order in target_orders:
+            order_id = order.get('order_id')
+            result = self.cancel_order(order_id)
+            results.append({
+                'order_id': order_id,
+                'stock_code': order.get('stock_code'),
+                **result
+            })
+            
+            if result.get('success'):
+                canceled_count += 1
+            else:
+                failed_count += 1
+        
+        return {
+            'success': failed_count == 0,
+            'message': f'股票 {stock_code} 撤单完成: 成功 {canceled_count} 笔, 失败 {failed_count} 笔',
+            'canceled_count': canceled_count,
+            'failed_count': failed_count,
+            'results': results
+        }
 
 
 # 全局QMT服务实例

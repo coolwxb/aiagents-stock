@@ -85,6 +85,74 @@ class QMTClient:
             "order_type": order_type
         })
 
+    # ==================== 委托查询 ====================
+    
+    def get_orders(self, cancelable_only: bool = False) -> List[Dict]:
+        """
+        查询当日所有委托
+        
+        Args:
+            cancelable_only: 是否只返回可撤单的委托
+        
+        Returns:
+            委托列表
+        """
+        return self._get("/orders", {"cancelable_only": cancelable_only})
+    
+    def get_cancelable_orders(self) -> List[Dict]:
+        """查询当日可撤委托"""
+        return self._get("/orders/cancelable")
+    
+    def get_order_by_id(self, order_id: int) -> Optional[Dict]:
+        """根据订单编号查询委托"""
+        return self._get(f"/orders/{order_id}")
+    
+    def get_orders_by_stock(self, stock_code: str) -> List[Dict]:
+        """查询指定股票的所有委托"""
+        return self._get(f"/orders/stock/{stock_code}")
+    
+    def get_pending_orders(self) -> List[Dict]:
+        """查询未完成的委托（非最终状态）"""
+        return self._get("/orders/pending")
+    
+    def get_orders_summary(self) -> Dict:
+        """获取委托汇总信息"""
+        return self._get("/orders/summary")
+    
+    def cancel_order(self, order_id: int) -> Dict:
+        """撤销委托"""
+        return self._post(f"/orders/{order_id}/cancel")
+    
+    def cancel_all_orders(self) -> Dict:
+        """撤销所有可撤委托"""
+        return self._post("/orders/cancel-all")
+    
+    def cancel_orders_by_stock(self, stock_code: str) -> Dict:
+        """撤销指定股票的所有可撤委托"""
+        return self._post(f"/orders/stock/{stock_code}/cancel")
+    
+    def has_pending_orders(self, stock_code: str) -> bool:
+        """
+        检查指定股票是否有未完成的委托
+        
+        Args:
+            stock_code: 股票代码
+        
+        Returns:
+            是否有未完成委托
+        """
+        try:
+            orders = self.get_orders_by_stock(stock_code)
+            if not orders:
+                return False
+            # 检查是否有非最终状态的委托
+            for order in orders:
+                if not order.get('is_final', False):
+                    return True
+            return False
+        except Exception:
+            return False
+
     # ==================== 实时行情 ====================
     
     def get_quote_stats(self) -> Dict:
