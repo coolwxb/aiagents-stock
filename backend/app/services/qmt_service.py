@@ -922,13 +922,17 @@ class QMTService:
         Returns:
             订单提交结果（注意：success=True仅表示订单提交成功，不代表成交）
         """
+        # 检查连接状态，未连接则尝试重连
         if not self.is_connected():
-            return {
-                'success': False,
-                'submitted': False,
-                'error': 'QMT未连接',
-                'message': '模拟模式：买入订单已记录但未实际执行'
-            }
+            self.logger.info("QMT未连接，尝试重新连接...")
+            success, msg = self.connect()
+            if not success:
+                return {
+                    'success': False,
+                    'submitted': False,
+                    'error': f'QMT连接失败: {msg}',
+                    'message': '模拟模式：买入订单已记录但未实际执行'
+                }
         
         # 检查数量是否是100的整数倍
         if quantity % 100 != 0:
@@ -1010,13 +1014,17 @@ class QMTService:
         Returns:
             订单提交结果（注意：success=True仅表示订单提交成功，不代表成交）
         """
+        # 检查连接状态，未连接则尝试重连
         if not self.is_connected():
-            return {
-                'success': False,
-                'submitted': False,
-                'error': 'QMT未连接',
-                'message': '模拟模式：卖出订单已记录但未实际执行'
-            }
+            self.logger.info("QMT未连接，尝试重新连接...")
+            success, msg = self.connect()
+            if not success:
+                return {
+                    'success': False,
+                    'submitted': False,
+                    'error': f'QMT连接失败: {msg}',
+                    'message': '模拟模式：卖出订单已记录但未实际执行'
+                }
         
         try:
             # 检查是否有持仓
