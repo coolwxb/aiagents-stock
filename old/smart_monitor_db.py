@@ -13,13 +13,20 @@ import json
 class SmartMonitorDB:
     """智能盯盘数据库"""
     
-    def __init__(self, db_file: str = 'smart_monitor.db'):
+    def __init__(self, db_file: str = None):
         """
         初始化数据库
         
         Args:
-            db_file: 数据库文件路径
+            db_file: 数据库文件路径，默认使用统一的sqlite_db目录
         """
+        if db_file is None:
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)  # old -> 项目根目录
+            sqlite_db_dir = os.path.join(project_root, "sqlite_db")
+            os.makedirs(sqlite_db_dir, exist_ok=True)
+            db_file = os.path.join(sqlite_db_dir, "smart_monitor.db")
         self.db_file = db_file
         self.logger = logging.getLogger(__name__)
         self._init_database()

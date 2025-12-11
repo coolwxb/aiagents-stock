@@ -25,6 +25,8 @@ from app.schemas.stock import (
 from app.agents.ai_agents import StockAnalysisAgents  # type: ignore  # noqa: E402
 from app.utils.pdf_generator import create_pdf_report  # type: ignore  # noqa: E402  # noqa: E402
 from app.core.progress_tracker import get_progress_tracker, TaskStatus  # type: ignore  # noqa: E402
+from app.data.stock_data import StockDataFetcher  # type: ignore  # noqa: E402
+from app.data.data_source import DataSourceManager, init_source_manager as get_data_source_manager  # type: ignore  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

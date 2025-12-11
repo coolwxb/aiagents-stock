@@ -5,6 +5,19 @@ import os
 from typing import List
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+from pathlib import Path
+
+
+def _get_default_database_url() -> str:
+    """获取默认数据库URL，使用统一的sqlite_db目录"""
+    # 从config.py向上找到项目根目录
+    # backend/app/config.py -> backend/app -> backend -> 项目根目录
+    current_dir = Path(__file__).resolve().parent  # backend/app
+    project_root = current_dir.parent.parent  # backend -> 项目根目录
+    sqlite_db_dir = project_root / "sqlite_db"
+    sqlite_db_dir.mkdir(parents=True, exist_ok=True)
+    db_path = sqlite_db_dir / "stock_analysis.db"
+    return f"sqlite:///{db_path}"
 
 
 class Settings(BaseSettings):
@@ -25,7 +38,7 @@ class Settings(BaseSettings):
     ]
     
     # 数据库配置
-    DATABASE_URL: str = "sqlite:///./data/stock_analysis.db"
+    DATABASE_URL: str = _get_default_database_url()
     
     # JWT配置
     SECRET_KEY: str = "ai-agent-secret-key"

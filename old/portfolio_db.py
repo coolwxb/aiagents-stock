@@ -10,19 +10,29 @@ from typing import List, Dict, Optional, Tuple
 import os
 
 # 数据库文件路径
-DB_PATH = "portfolio_stocks.db"
+def _get_default_db_path():
+    """获取默认数据库路径，使用统一的sqlite_db目录"""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.dirname(current_dir)  # old -> 项目根目录
+    sqlite_db_dir = os.path.join(project_root, "sqlite_db")
+    os.makedirs(sqlite_db_dir, exist_ok=True)
+    return os.path.join(sqlite_db_dir, "portfolio_stocks.db")
+
+DB_PATH = _get_default_db_path()
 
 
 class PortfolioDB:
     """持仓股票数据库管理类"""
     
-    def __init__(self, db_path: str = DB_PATH):
+    def __init__(self, db_path: str = None):
         """
         初始化数据库连接
         
         Args:
-            db_path: 数据库文件路径
+            db_path: 数据库文件路径，默认使用统一的sqlite_db目录
         """
+        if db_path is None:
+            db_path = _get_default_db_path()
         self.db_path = db_path
         self._init_database()
     

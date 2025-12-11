@@ -13,13 +13,20 @@ import logging
 class SectorStrategyDatabase:
     """智策板块数据库管理类"""
     
-    def __init__(self, db_path='sector_strategy.db'):
+    def __init__(self, db_path=None):
         """
         初始化数据库
         
         Args:
-            db_path: 数据库文件路径
+            db_path: 数据库文件路径，默认使用统一的sqlite_db目录
         """
+        if db_path is None:
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)  # old -> 项目根目录
+            sqlite_db_dir = os.path.join(project_root, "sqlite_db")
+            os.makedirs(sqlite_db_dir, exist_ok=True)
+            db_path = os.path.join(sqlite_db_dir, "sector_strategy.db")
         self.db_path = db_path
         # 初始化日志
         self.logger = logging.getLogger(__name__)

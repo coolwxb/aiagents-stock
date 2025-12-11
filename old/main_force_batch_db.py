@@ -13,8 +13,15 @@ import pandas as pd
 class MainForceBatchDatabase:
     """主力选股批量分析历史数据库管理类"""
     
-    def __init__(self, db_path: str = "main_force_batch.db"):
+    def __init__(self, db_path: str = None):
         """初始化数据库连接"""
+        if db_path is None:
+            import os
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            project_root = os.path.dirname(current_dir)  # old -> 项目根目录
+            sqlite_db_dir = os.path.join(project_root, "sqlite_db")
+            os.makedirs(sqlite_db_dir, exist_ok=True)
+            db_path = os.path.join(sqlite_db_dir, "main_force_batch.db")
         self.db_path = db_path
         self._init_database()
     

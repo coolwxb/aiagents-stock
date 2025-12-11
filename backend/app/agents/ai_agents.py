@@ -89,7 +89,7 @@ class StockAnalysisAgents:
         risk_data_text = ""
         if risk_data and risk_data.get('data_success'):
             # 使用格式化的风险数据
-            from risk_data_fetcher import RiskDataFetcher
+            from app.data.risk_data_fetcher import RiskDataFetcher
             fetcher = RiskDataFetcher()
             risk_data_text = f"""
 
@@ -232,7 +232,7 @@ class StockAnalysisAgents:
         sentiment_data_text = ""
         if sentiment_data and sentiment_data.get('data_success'):
             # 使用格式化的市场情绪数据
-            from market_sentiment_data import MarketSentimentDataFetcher
+            from app.data.market_sentiment import MarketSentimentDataFetcher
             fetcher = MarketSentimentDataFetcher()
             sentiment_data_text = f"""
 
@@ -322,7 +322,7 @@ class StockAnalysisAgents:
         news_text = ""
         if news_data and news_data.get('data_success'):
             # 使用格式化的新闻数据
-            from qstock_news_data import QStockNewsDataFetcher
+            from app.data.qstock_news_data import QStockNewsDataFetcher
             fetcher = QStockNewsDataFetcher()
             news_text = f"""
 

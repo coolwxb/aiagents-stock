@@ -17,6 +17,7 @@ from app.agents.deepseek_client import DeepSeekClient
 from app.services.qmt_service import qmt_service
 from app.services.notification_service import get_notification_service
 from app.data.data_source import data_source_manager
+from app.data.stock_data import StockDataFetcher
 
 
 class MonitorService:

@@ -26,6 +26,10 @@
               <el-option v-for="item in modelOptions" :key="item.value" :label="item.label" :value="item.value" />
             </el-select>
           </div>
+          <div class="action-block quick-links">
+            <el-button type="primary" plain size="small" @click="goToBatchAnalysis">🚀 批量深度分析</el-button>
+            <el-button type="info" plain size="small" @click="goToHistory">📚 历史记录</el-button>
+          </div>
         </div>
       </div>
     </el-card>
@@ -580,7 +584,14 @@ export default {
         const res = await analyzeMainforce(this.composePayload())
         const data = res && (res.data || res.result || res)
         if (data && data.success) {
-          this.analysisResult = data
+          // 处理后端返回的数据格式
+          const result = {
+            ...data,
+            timestamp: (data.params && data.params.timestamp) || new Date().toLocaleString(),
+            candidates: (data.params && data.params.candidates) || [],
+            analyst_reports: (data.params && data.params.analyst_reports) || {}
+          }
+          this.analysisResult = result
           this.$message.success('主力选股分析完成')
         } else {
           throw new Error((data && data.error) || '分析失败')
@@ -646,9 +657,19 @@ export default {
       }
     },
     loadHistoryItem(item) {
-      this.$alert('批量历史详情功能将在后续版本开放，敬请期待。', '提示', {
-        confirmButtonText: '好的'
-      })
+      this.$router.push('/selection/mainforce/history')
+    },
+    goToBatchAnalysis() {
+      // 如果有候选股票，传递股票代码
+      if (this.candidateList && this.candidateList.length > 0) {
+        const codes = this.candidateList.slice(0, 20).map(s => s.symbol).join(',')
+        this.$router.push({ path: '/selection/mainforce/batch', query: { codes } })
+      } else {
+        this.$router.push('/selection/mainforce/batch')
+      }
+    },
+    goToHistory() {
+      this.$router.push('/selection/mainforce/history')
     }
   }
 }
@@ -723,6 +744,13 @@ export default {
           font-size: 12px;
           opacity: 0.8;
           margin: 0;
+        }
+
+        &.quick-links {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-width: auto;
         }
       }
     }

@@ -3,15 +3,36 @@
 使用AKShare获取板块相关数据
 """
 
+import sys
+import os
+
+# 添加old目录到路径以导入原有模块
+OLD_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), 'old')
+if OLD_PATH not in sys.path:
+    sys.path.insert(0, OLD_PATH)
+
 import akshare as ak
 import pandas as pd
 from datetime import datetime, timedelta
 import warnings
 import time
 import logging
-import os
 from dotenv import load_dotenv
-from sector_strategy_db import SectorStrategyDatabase
+
+# 延迟导入数据库模块
+_database_class = None
+
+def get_database_class():
+    """延迟加载数据库类"""
+    global _database_class
+    if _database_class is None:
+        try:
+            from app.db.sector_db import SectorStrategyDatabase
+            _database_class = SectorStrategyDatabase
+        except ImportError as e:
+            logging.warning(f"无法导入SectorStrategyDatabase: {e}")
+            _database_class = None
+    return _database_class
 
 # 加载环境变量
 load_dotenv()
@@ -24,12 +45,13 @@ class SectorStrategyDataFetcher:
     
     def __init__(self):
         print("[智策] 板块数据获取器初始化...")
-        self.max_retries = 3  # 最大重试次数
-        self.retry_delay = 2  # 重试延迟（秒）
-        self.request_delay = 1  # 请求间隔（秒）
+        self.max_retries = 4  # 最大重试次数
+        self.retry_delay = 3  # 重试延迟（秒）
+        self.request_delay = 3  # 请求间隔（秒）
         
         # 初始化数据库和日志
-        self.database = SectorStrategyDatabase()
+        DatabaseClass = get_database_class()
+        self.database = DatabaseClass() if DatabaseClass else None
         self.logger = logging.getLogger(__name__)
         
         # 配置日志
@@ -540,6 +562,10 @@ class SectorStrategyDataFetcher:
                 self.logger.warning("[智策数据] 数据获取失败，跳过保存")
                 return
             
+            if self.database is None:
+                self.logger.warning("[智策数据] 数据库未初始化，跳过保存")
+                return
+            
             # 保存板块数据
             if data.get("sectors"):
                 # 将字典转换为DataFrame并映射必要列
@@ -678,6 +704,10 @@ class SectorStrategyDataFetcher:
     def _load_cached_data(self):
         """加载缓存数据"""
         try:
+            if self.database is None:
+                self.logger.warning("[智策数据] 数据库未初始化，无法加载缓存")
+                return None
+            
             # 获取最近的各类数据
             cached_data = {
                 "success": True,

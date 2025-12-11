@@ -13,13 +13,16 @@ import logging
 class LonghubangDatabase:
     """龙虎榜数据库管理类"""
     
-    def __init__(self, db_path='longhubang.db'):
+    def __init__(self, db_path=None):
         """
         初始化数据库
         
         Args:
-            db_path: 数据库文件路径
+            db_path: 数据库文件路径，默认使用统一的sqlite_db目录
         """
+        if db_path is None:
+            from app.db.db_path import get_db_path, DB_LONGHUBANG
+            db_path = get_db_path(DB_LONGHUBANG)
         self.db_path = db_path
         # 初始化日志
         self.logger = logging.getLogger(__name__)

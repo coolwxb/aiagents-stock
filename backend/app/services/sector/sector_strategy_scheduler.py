@@ -3,6 +3,14 @@
 支持定时运行板块策略分析并发送邮件通知
 """
 
+import sys
+import os
+
+# 添加old目录到路径以导入原有模块
+OLD_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))), 'old')
+if OLD_PATH not in sys.path:
+    sys.path.insert(0, OLD_PATH)
+
 import schedule
 import threading
 import time

@@ -14,13 +14,16 @@ from pathlib import Path
 class GSStrategyDatabase:
     """GS策略数据库管理类"""
     
-    def __init__(self, db_path='gs_strategy.db'):
+    def __init__(self, db_path=None):
         """
         初始化数据库
         
         Args:
-            db_path: 数据库文件路径
+            db_path: 数据库文件路径，默认使用统一的sqlite_db目录
         """
+        if db_path is None:
+            from app.db.db_path import get_db_path, DB_GS_STRATEGY
+            db_path = get_db_path(DB_GS_STRATEGY)
         self.db_path = db_path
         self.logger = logging.getLogger(__name__)
         if not self.logger.handlers:
@@ -858,11 +861,8 @@ class GSStrategyDatabase:
 
 
 # 创建全局实例
-# 使用绝对路径确保数据库文件位置一致
-import os
-_db_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-_db_path = os.path.join(_db_dir, 'gs_strategy.db')
-gs_strategy_db = GSStrategyDatabase(_db_path)
+# 使用统一的sqlite_db目录
+gs_strategy_db = GSStrategyDatabase()
 
 
 # 测试函数

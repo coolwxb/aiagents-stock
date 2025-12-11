@@ -220,7 +220,7 @@ class GSScheduler:
             # 处理信号
             g_buy = signal_data.get('g_buy', 0)
             g_sell = signal_data.get('g_sell', 0)
-            g_sell=1
+        
             
             if g_buy == 1:
                 # 买入信号

@@ -36,13 +36,13 @@ except ImportError:
 class LonghubangService:
     """龙虎榜综合分析引擎"""
     
-    def __init__(self, model="deepseek-chat", db_path='longhubang.db'):
+    def __init__(self, model="deepseek-chat", db_path=None):
         """
         初始化分析引擎
         
         Args:
             model: AI模型名称
-            db_path: 数据库路径
+            db_path: 数据库路径，默认使用统一的sqlite_db目录
         """
         self.data_fetcher = LonghubangDataFetcher()
         self.database = LonghubangDatabase(db_path)

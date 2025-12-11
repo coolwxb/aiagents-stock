@@ -3,8 +3,16 @@
 整合各智能体分析，生成板块多空/轮动/热度预测
 """
 
+import sys
+import os
+
+# 添加old目录到路径以导入原有模块
+OLD_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))), 'old')
+if OLD_PATH not in sys.path:
+    sys.path.insert(0, OLD_PATH)
+
 from sector_strategy_agents import SectorStrategyAgents
-from sector_strategy_db import SectorStrategyDatabase
+from app.db.sector_db import SectorStrategyDatabase
 from deepseek_client import DeepSeekClient
 from typing import Dict, Any
 import time
