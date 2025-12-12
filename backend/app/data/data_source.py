@@ -193,8 +193,10 @@ class DataSourceManager:
                         amount = quote_data.get('amount', 0)
                         
                         # 构造当日K线数据
-                        # time字段使用与历史数据相同的格式
-                        today_time = int(today_str + '000000000')  # 格式：YYYYMMDD000000000
+                        # time字段使用毫秒时间戳格式（与历史数据一致）
+                        # 当日0点的毫秒时间戳
+                        today_datetime = datetime.strptime(today_str, '%Y%m%d')
+                        today_time = int(today_datetime.timestamp() * 1000)
                         
                         new_row = pd.DataFrame({
                             'time': [today_time],
