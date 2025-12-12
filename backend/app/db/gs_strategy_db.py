@@ -788,6 +788,34 @@ class GSStrategyDatabase:
         finally:
             conn.close()
     
+    def delete_trade_history(self, trade_id: int) -> bool:
+        """
+        删除交易历史记录
+        
+        Args:
+            trade_id: 交易记录ID
+            
+        Returns:
+            bool: 是否删除成功
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('DELETE FROM gs_trade_history WHERE id = ?', (trade_id,))
+            deleted_count = cursor.rowcount
+            conn.commit()
+            
+            if deleted_count > 0:
+                self.logger.info(f"[GS策略] 删除交易记录 (ID: {trade_id})")
+                return True
+            else:
+                self.logger.warning(f"[GS策略] 交易记录 {trade_id} 不存在")
+                return False
+                
+        finally:
+            conn.close()
+    
     def get_statistics(self) -> Dict:
         """
         获取交易统计数据

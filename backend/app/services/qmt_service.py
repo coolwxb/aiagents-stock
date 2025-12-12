@@ -959,7 +959,7 @@ class QMTService:
                 price_type = xtconstant.FIX_PRICE
             
             # 异步下单
-            order_id = QMTService._xttrader.order_stock_async(
+            order_id = QMTService._xttrader.order_stock(
                 account=QMTService._account,
                 stock_code=full_code,
                 order_type=xtconstant.STOCK_BUY,
@@ -1060,7 +1060,7 @@ class QMTService:
                 price_type = xtconstant.FIX_PRICE
             
             # 异步下单
-            order_id = QMTService._xttrader.order_stock_async(
+            order_id = QMTService._xttrader.order_stock(
                 account=QMTService._account,
                 stock_code=full_code,
                 order_type=xtconstant.STOCK_SELL,

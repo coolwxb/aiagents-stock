@@ -169,9 +169,9 @@ class DataSourceManager:
                             # 获取最后一条数据的时间
                             last_time = df['time'].iloc[-1] if 'time' in df.columns else None
                             if last_time:
-                                # 将时间戳转换为日期字符串进行比较
+                                # 将毫秒时间戳转换为日期字符串进行比较
                                 try:
-                                    last_date_str = pd.to_datetime(str(last_time)).strftime('%Y%m%d')
+                                    last_date_str = pd.to_datetime(last_time, unit='ms').strftime('%Y%m%d')
                                     if last_date_str == today_str:
                                         # 当日数据已存在，更新最后一条记录
                                         df.loc[df.index[-1], 'close'] = last_price

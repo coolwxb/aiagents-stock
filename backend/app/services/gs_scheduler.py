@@ -221,6 +221,7 @@ class GSScheduler:
             g_buy = signal_data.get('g_buy', 0)
             g_sell = signal_data.get('g_sell', 0)
 
+
             if g_buy == 1:
                 # 买入信号
                 gs_strategy_db.update_monitor(
@@ -444,17 +445,17 @@ class GSScheduler:
         # 卖出前检查
              
         # 1. 检查是否已经持有该股票（持仓数量大于0则跳过）
-        # position = qmt_client.get_position(stock_code)
-        # if position is None:
-        #     self.logger.warning(
-        #         f"未持有股票： {stock_code} {stock_name} "
-        #     )
-        #     return
-        # if position.get('can_sell', 0) == 0:
-        #     self.logger.warning(
-        #         f"股票 {stock_code} ({stock_name})  可用数量: {position.get('can_sell')}，跳过本次卖出"
-        #     )
-        #     return
+        position = qmt_client.get_position(stock_code)
+        if position is None:
+            self.logger.warning(
+                f"未持有股票： {stock_code} {stock_name} "
+            )
+            return
+        if position.get('can_sell', 0) == 0:
+            self.logger.warning(
+                f"股票 {stock_code} ({stock_name})  可用数量: {position.get('can_sell')}，跳过本次卖出"
+            )
+            return
         
         # 2. 检查是否有未完成的委托（待报、已报等非最终状态）
         orders = qmt_client.get_orders_by_stock(stock_code)
@@ -852,6 +853,7 @@ class GSScheduler:
         from app.db.gs_strategy_db import gs_strategy_db
         
         try:
+            print(f"进入 _update_monitor_order_status order_id:{order_id} order_status_name:{order_status_name}")
             # 查找所有监控任务，找到匹配的pending_order_id
             monitors = gs_strategy_db.get_monitors()
             
@@ -899,7 +901,7 @@ class GSScheduler:
         
         """
         from app.db.gs_strategy_db import gs_strategy_db
-        
+        print(f"进入 _update_trade_history_order_status order_id:{order_id} order_status_name:{order_status_name}")
         try:
             # 根据order_id查找交易记录
             trade = gs_strategy_db.get_trade_by_order_id(order_id)
