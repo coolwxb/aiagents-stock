@@ -112,6 +112,42 @@
                     placeholder="stock_history"
                   />
                 </el-form-item>
+
+                <el-divider content-position="left">Redis 缓存配置</el-divider>
+                <el-form-item label="启用 Redis 缓存">
+                  <el-switch v-model="configForm.dataSource.redisEnabled" />
+                  <span class="form-tip">开启后将使用 Redis 缓存行情数据和任务队列</span>
+                </el-form-item>
+                <el-form-item label="Redis 地址">
+                  <el-input
+                    v-model="configForm.dataSource.redisHost"
+                    :disabled="!configForm.dataSource.redisEnabled"
+                    placeholder="127.0.0.1"
+                  />
+                </el-form-item>
+                <el-form-item label="Redis 端口">
+                  <el-input
+                    v-model="configForm.dataSource.redisPort"
+                    :disabled="!configForm.dataSource.redisEnabled"
+                    placeholder="6379"
+                  />
+                </el-form-item>
+                <el-form-item label="Redis 密码">
+                  <el-input
+                    v-model="configForm.dataSource.redisPassword"
+                    type="password"
+                    show-password
+                    :disabled="!configForm.dataSource.redisEnabled"
+                    placeholder="可选，无密码留空"
+                  />
+                </el-form-item>
+                <el-form-item label="Redis 数据库">
+                  <el-input
+                    v-model="configForm.dataSource.redisDb"
+                    :disabled="!configForm.dataSource.redisEnabled"
+                    placeholder="0"
+                  />
+                </el-form-item>
               </el-form>
               <div class="hint-block">
                 <p class="hint-title">数据源配置说明</p>
@@ -119,6 +155,7 @@
                   <li>Tushare Token 可选，配置后可让后端获取更全面的 A 股财务与行业数据。</li>
                   <li>MySQL 数据源面向自建行情库，启用后需确保主机/端口/库表信息与实际数据库一致。</li>
                   <li>建议行情表包含股票代码、交易日期、开高低收和成交量等字段，方便分析与量化策略复用。</li>
+                  <li>Redis 可用于缓存行情数据、Celery 任务队列等，提升系统性能。</li>
                 </ul>
               </div>
             </el-tab-pane>
@@ -303,6 +340,11 @@ const defaultFlatConfig = () => ({
   MYSQL_PASSWORD: '',
   MYSQL_DATABASE: 'choose_stock',
   MYSQL_STOCK_TABLE: 'stock_history',
+  REDIS_ENABLED: 'false',
+  REDIS_HOST: '127.0.0.1',
+  REDIS_PORT: '6379',
+  REDIS_PASSWORD: '',
+  REDIS_DB: '0',
   MINIQMT_ENABLED: 'false',
   MINIQMT_ACCOUNT_ID: '',
   MINIQMT_ACCOUNT_TYPE: 'STOCK',
@@ -358,7 +400,12 @@ export default {
           mysqlUser: 'root',
           mysqlPassword: '',
           mysqlDatabase: 'choose_stock',
-          mysqlStockTable: 'stock_history'
+          mysqlStockTable: 'stock_history',
+          redisEnabled: false,
+          redisHost: '127.0.0.1',
+          redisPort: '6379',
+          redisPassword: '',
+          redisDb: '0'
         },
         trading: {
           miniqmtEnabled: false,
@@ -412,7 +459,12 @@ export default {
           mysqlUser: flat.MYSQL_USER || 'root',
           mysqlPassword: flat.MYSQL_PASSWORD || '',
           mysqlDatabase: flat.MYSQL_DATABASE || 'choose_stock',
-          mysqlStockTable: flat.MYSQL_STOCK_TABLE || 'stock_history'
+          mysqlStockTable: flat.MYSQL_STOCK_TABLE || 'stock_history',
+          redisEnabled: this.boolFromString(flat.REDIS_ENABLED),
+          redisHost: flat.REDIS_HOST || '127.0.0.1',
+          redisPort: flat.REDIS_PORT || '6379',
+          redisPassword: flat.REDIS_PASSWORD || '',
+          redisDb: flat.REDIS_DB || '0'
         },
         trading: {
           miniqmtEnabled: this.boolFromString(flat.MINIQMT_ENABLED),
@@ -446,6 +498,11 @@ export default {
         MYSQL_PASSWORD: form.dataSource.mysqlPassword || '',
         MYSQL_DATABASE: form.dataSource.mysqlDatabase || 'choose_stock',
         MYSQL_STOCK_TABLE: form.dataSource.mysqlStockTable || 'stock_history',
+        REDIS_ENABLED: this.boolToString(form.dataSource.redisEnabled),
+        REDIS_HOST: form.dataSource.redisHost || '127.0.0.1',
+        REDIS_PORT: form.dataSource.redisPort || '6379',
+        REDIS_PASSWORD: form.dataSource.redisPassword || '',
+        REDIS_DB: form.dataSource.redisDb || '0',
         MINIQMT_ENABLED: this.boolToString(form.trading.miniqmtEnabled),
         MINIQMT_ACCOUNT_ID: form.trading.miniqmtAccountId || '',
         MINIQMT_ACCOUNT_TYPE: form.trading.miniqmtAccountType || 'STOCK',
@@ -520,6 +577,13 @@ export default {
         `MYSQL_PASSWORD="${flat.MYSQL_PASSWORD}"`,
         `MYSQL_DATABASE="${flat.MYSQL_DATABASE}"`,
         `MYSQL_STOCK_TABLE="${flat.MYSQL_STOCK_TABLE}"`,
+        '',
+        '# ========== Redis缓存配置（可选）==========',
+        `REDIS_ENABLED="${flat.REDIS_ENABLED}"`,
+        `REDIS_HOST="${flat.REDIS_HOST}"`,
+        `REDIS_PORT="${flat.REDIS_PORT}"`,
+        `REDIS_PASSWORD="${flat.REDIS_PASSWORD}"`,
+        `REDIS_DB="${flat.REDIS_DB}"`,
         '',
         '# ========== MiniQMT量化交易配置（可选）==========',
         `MINIQMT_ENABLED="${flat.MINIQMT_ENABLED}"`,
