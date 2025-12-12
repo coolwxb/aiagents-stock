@@ -949,14 +949,40 @@ class QMTService:
             # 构造完整股票代码
             full_code = self._format_stock_code(stock_code)
             
+            # 判断可用金额
+            account_info = self.get_account_info()
+            available_cash = account_info.get('cash', 0)
+            
+            # 计算买入所需金额（价格 * 数量）
+            # 如果没有指定价格，尝试获取实时价格
+            buy_price = price
+            if buy_price <= 0:
+                quote_data = self.get_stock_quote(full_code)
+                if quote_data:
+                    buy_price = quote_data.get('lastPrice', 0)
+                if buy_price <= 0:
+                    return {
+                        'success': False,
+                        'submitted': False,
+                        'error': '无法获取股票价格，请指定买入价格'
+                    }
+            
+            # 计算买入金额（含预估手续费，按0.3%估算）
+            estimated_amount = buy_price * quantity 
+            
+            if available_cash < estimated_amount:
+                return {
+                    'success': False,
+                    'submitted': False,
+                    'error': f'可用资金不足，需要约 {estimated_amount:.2f} 元，当前可用 {available_cash:.2f} 元'
+                }
+            
             # 导入常量
             from xtquant import xtconstant
             
             # 根据订单类型选择
-            if order_type == 'market':
-                price_type = xtconstant.MARKET_PEER_PRICE_FIRST
-            else:
-                price_type = xtconstant.FIX_PRICE
+            
+            price_type = xtconstant.FIX_PRICE
             
             # 异步下单
             order_id = QMTService._xttrader.order_stock(
@@ -1054,10 +1080,8 @@ class QMTService:
             from xtquant import xtconstant
             
             # 根据订单类型选择
-            if order_type == 'market':
-                price_type = xtconstant.MARKET_PEER_PRICE_FIRST
-            else:
-                price_type = xtconstant.FIX_PRICE
+            
+            price_type = xtconstant.FIX_PRICE
             
             # 异步下单
             order_id = QMTService._xttrader.order_stock(

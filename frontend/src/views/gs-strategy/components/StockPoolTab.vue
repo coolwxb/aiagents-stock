@@ -124,6 +124,18 @@
           </el-select>
           <p class="form-tip">GS策略将按此间隔执行分析</p>
         </el-form-item>
+        <el-form-item label="买入金额" prop="buy_amount">
+          <el-input-number
+            v-model="monitorForm.buy_amount"
+            :min="0.1"
+            :max="1000"
+            :precision="1"
+            :step="1"
+            placeholder="请输入买入金额"
+          />
+          <span style="margin-left: 8px;">万元</span>
+          <p class="form-tip">触发买入信号时的买入金额，系统将自动计算买入股数（取整到100股）</p>
+        </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button @click="monitorDialogVisible = false">取消</el-button>
@@ -171,11 +183,15 @@ export default {
         stock_id: null,
         stock_code: '',
         stock_name: '',
-        interval: 300
+        interval: 300,
+        buy_amount: 1
       },
       monitorRules: {
         interval: [
           { required: true, message: '请选择监测间隔', trigger: 'change' }
+        ],
+        buy_amount: [
+          { required: true, message: '请输入买入金额', trigger: 'blur' }
         ]
       }
     }
@@ -271,7 +287,8 @@ export default {
         stock_id: row.id,
         stock_code: row.stock_code,
         stock_name: row.stock_name,
-        interval: 300
+        interval: 300,
+        buy_amount: 1
       }
       this.monitorDialogVisible = true
     },
@@ -280,7 +297,8 @@ export default {
         stock_id: null,
         stock_code: '',
         stock_name: '',
-        interval: 300
+        interval: 300,
+        buy_amount: 1
       }
     },
     handleConfirmMonitor() {
@@ -295,7 +313,8 @@ export default {
         // 创建监控任务
         const res = await createMonitor({
           stock_id: this.monitorForm.stock_id,
-          interval: this.monitorForm.interval
+          interval: this.monitorForm.interval,
+          buy_amount: this.monitorForm.buy_amount
         })
         // 自动启动监控
         const monitorId = res.data?.id || res?.id

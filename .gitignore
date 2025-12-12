@@ -10,3 +10,7 @@
 /.cursor
 /openspec
 TradEnv/
+*.db
+.vscode
+.qorder
+.streamlit

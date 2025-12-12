@@ -221,7 +221,6 @@ class GSScheduler:
             g_buy = signal_data.get('g_buy', 0)
             g_sell = signal_data.get('g_sell', 0)
 
-
             if g_buy == 1:
                 # 买入信号
                 gs_strategy_db.update_monitor(
@@ -357,12 +356,29 @@ class GSScheduler:
         # 获取当前价格
         current_price = signal_data.get('close', 0)
         
-        # 默认买入数量（可以根据配置调整）
-        buy_quantity = 100  # 1手
+        # 根据买入金额计算买入数量
+        # buy_amount 单位是万元，需要转换为元
+        buy_amount = monitor.get('buy_amount', 1.0)  # 默认1万元
+        buy_amount_yuan = buy_amount * 10000  # 转换为元
+        
+        if current_price > 0:
+            # 计算可买入股数，向下取整到100的整数倍（1手）
+            raw_quantity = buy_amount_yuan / current_price
+            buy_quantity = int(raw_quantity // 100) * 100
+            
+            if buy_quantity < 100:
+                self.logger.warning(
+                    f"买入金额 {buy_amount}万元 不足以购买1手 {stock_code}（当前价格: {current_price}），跳过买入"
+                )
+                return
+        else:
+            self.logger.warning(f"股票 {stock_code} 当前价格为0，跳过买入")
+            return
+        
+        self.logger.info(f"准备买入 {stock_code}: 金额={buy_amount}万元, 价格={current_price}, 数量={buy_quantity}股")
         
         # 调用QMT买入接口
-       
-        order_result = qmt_client.buy(stock_code,buy_quantity, current_price, 'market')
+        order_result = qmt_client.buy(stock_code, buy_quantity, current_price, 'market')
         
         # success 不代表最终成交，只代下单成功
         if order_result.get('success'):
@@ -481,8 +497,8 @@ class GSScheduler:
         # 获取当前价格
         current_price = signal_data.get('close', 0)
         
-        # sell_quantity = position.get('can_sell', 0)
-        sell_quantity = 100
+        sell_quantity = position.get('can_sell', 0)
+
         # 调用QMT卖出接口
         order_result = qmt_client.sell(stock_code, sell_quantity, current_price, 'market')
         
@@ -916,8 +932,7 @@ class GSScheduler:
                 return
             
             update_data = {}
-            if is_final:
-                update_data["status"] = "close"
+            
             
             # 判断是买入还是卖出订单
             if trade.get('buy_order_id') == order_id:
@@ -927,7 +942,7 @@ class GSScheduler:
                 update_data['buy_order_status_name'] = order_status_name
                 
                 # 如果成交成功，更新成交价格
-                if is_success and traded_price > 0:
+                if is_success and traded_price >= 0:
                     update_data['buy_price'] = traded_price
                 
             elif trade.get('sell_order_id') == order_id:
@@ -937,7 +952,7 @@ class GSScheduler:
                 update_data['sell_order_status_name'] = order_status_name
                 
                 # 如果成交成功，更新成交价格和盈亏
-                if is_success and traded_price > 0:
+                if is_success and traded_price >= 0:
                     update_data['sell_price'] = traded_price
                     
                     # 计算盈亏

@@ -54,7 +54,16 @@ export default {
   },
   methods: {
     handleTabClick(tab) {
-      // Tab state is preserved automatically by Vue
+      // 点击tab时自动刷新对应数据
+      this.$nextTick(() => {
+        const tabRef = this.$refs[tab.name + 'Tab']
+        if (tabRef && typeof tabRef.refresh === 'function') {
+          this.loading = true
+          tabRef.refresh().finally(() => {
+            this.loading = false
+          })
+        }
+      })
     },
     refreshCurrentTab() {
       this.loading = true

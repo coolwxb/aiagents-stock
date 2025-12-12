@@ -62,6 +62,7 @@ class GSStrategyDatabase:
             stock_code TEXT NOT NULL,
             stock_name TEXT,
             interval INTEGER DEFAULT 300,
+            buy_amount REAL DEFAULT 1.0,
             status TEXT DEFAULT 'stopped',
             started_at TEXT,
             execution_count INTEGER DEFAULT 0,
@@ -79,6 +80,10 @@ class GSStrategyDatabase:
         ''')
         
         # 尝试添加监控任务表的新字段
+        try:
+            cursor.execute('ALTER TABLE gs_monitor_tasks ADD COLUMN buy_amount REAL DEFAULT 1.0')
+        except sqlite3.OperationalError:
+            pass
         try:
             cursor.execute('ALTER TABLE gs_monitor_tasks ADD COLUMN pending_order_id TEXT')
         except sqlite3.OperationalError:
@@ -308,7 +313,7 @@ class GSStrategyDatabase:
     
     # ==================== 监控任务管理方法 ====================
     
-    def create_monitor(self, stock_pool_id: int, stock_code: str, stock_name: str, interval: int = 300) -> int:
+    def create_monitor(self, stock_pool_id: int, stock_code: str, stock_name: str, interval: int = 300, buy_amount: float = 1.0) -> int:
         """
         创建监控任务
         
@@ -317,6 +322,7 @@ class GSStrategyDatabase:
             stock_code: 股票代码
             stock_name: 股票名称
             interval: 监测间隔（秒）
+            buy_amount: 买入金额（万元）
             
         Returns:
             int: 监控任务ID
@@ -328,14 +334,14 @@ class GSStrategyDatabase:
             now = datetime.now().isoformat()
             cursor.execute('''
             INSERT INTO gs_monitor_tasks 
-            (stock_pool_id, stock_code, stock_name, interval, status, started_at)
-            VALUES (?, ?, ?, ?, 'running', ?)
-            ''', (stock_pool_id, stock_code, stock_name, interval, now))
+            (stock_pool_id, stock_code, stock_name, interval, buy_amount, status, started_at)
+            VALUES (?, ?, ?, ?, ?, 'running', ?)
+            ''', (stock_pool_id, stock_code, stock_name, interval, buy_amount, now))
             
             monitor_id = cursor.lastrowid
             conn.commit()
             
-            self.logger.info(f"[GS策略] 创建监控任务: {stock_code} - {stock_name}")
+            self.logger.info(f"[GS策略] 创建监控任务: {stock_code} - {stock_name}, 买入金额: {buy_amount}万元")
             return monitor_id
             
         finally:
@@ -360,7 +366,7 @@ class GSStrategyDatabase:
             update_fields = []
             values = []
             
-            allowed_fields = ['interval', 'status', 'started_at', 'execution_count', 
+            allowed_fields = ['interval', 'buy_amount', 'status', 'started_at', 'execution_count', 
                               'last_signal', 'last_signal_time',
                               'pending_order_id', 'pending_order_sysid', 'pending_order_type', 
                               'pending_order_status', 'pending_order_status_name']

@@ -89,6 +89,11 @@
             {{ formatInterval(scope.row.interval) }}
           </template>
         </el-table-column>
+        <el-table-column prop="buy_amount" label="买入金额" min-width="100" align="center">
+          <template slot-scope="scope">
+            {{ scope.row.buy_amount ? scope.row.buy_amount + '万' : '--' }}
+          </template>
+        </el-table-column>
         <el-table-column prop="status" label="状态" min-width="100" align="center">
           <template slot-scope="scope">
             <el-tag :type="scope.row.status === 'running' ? 'success' : 'info'" size="small">
@@ -179,6 +184,17 @@
             <el-option label="60分钟" :value="3600" />
           </el-select>
         </el-form-item>
+        <el-form-item label="买入金额" prop="buy_amount">
+          <el-input-number
+            v-model="addForm.buy_amount"
+            :min="0.1"
+            :max="1000"
+            :precision="1"
+            :step="0.5"
+            placeholder="请输入买入金额"
+          />
+          <span style="margin-left: 8px;">万元</span>
+        </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button @click="addDialogVisible = false">取消</el-button>
@@ -211,11 +227,15 @@ export default {
         stock_id: null,
         stock_code: '',
         stock_name: '',
-        interval: 300
+        interval: 300,
+        buy_amount: 1
       },
       addRules: {
         interval: [
           { required: true, message: '请选择监测间隔', trigger: 'change' }
+        ],
+        buy_amount: [
+          { required: true, message: '请输入买入金额', trigger: 'blur' }
         ]
       }
     }
@@ -352,7 +372,8 @@ export default {
         stock_id: stock.stock_id || stock.id,
         stock_code: stock.stock_code,
         stock_name: stock.stock_name,
-        interval: 300
+        interval: 300,
+        buy_amount: 1
       }
       this.addDialogVisible = true
     },
@@ -361,7 +382,8 @@ export default {
         stock_id: null,
         stock_code: '',
         stock_name: '',
-        interval: 300
+        interval: 300,
+        buy_amount: 1
       }
     },
     async handleConfirmAdd() {
@@ -371,7 +393,8 @@ export default {
         try {
           const res = await createMonitor({
             stock_id: this.addForm.stock_id,
-            interval: this.addForm.interval
+            interval: this.addForm.interval,
+            buy_amount: this.addForm.buy_amount
           })
           const monitorId = res.data?.id || res?.id
           if (monitorId) {

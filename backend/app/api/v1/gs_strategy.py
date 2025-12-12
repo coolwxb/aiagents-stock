@@ -48,6 +48,7 @@ class MonitorCreate(BaseModel):
     """创建监控任务的请求模型"""
     stock_id: int
     interval: int = 300  # 默认5分钟
+    buy_amount: float = 1.0  # 买入金额，单位万元，默认1万
     
     @validator('interval')
     def validate_interval(cls, v):
@@ -57,11 +58,21 @@ class MonitorCreate(BaseModel):
         if v > 3600:
             raise ValueError('监测间隔不能大于3600秒')
         return v
+    
+    @validator('buy_amount')
+    def validate_buy_amount(cls, v):
+        """验证买入金额（最小0.1万，最大1000万）"""
+        if v < 0.1:
+            raise ValueError('买入金额不能小于0.1万元')
+        if v > 1000:
+            raise ValueError('买入金额不能大于1000万元')
+        return v
 
 
 class MonitorUpdate(BaseModel):
     """更新监控任务的请求模型"""
     interval: Optional[int] = None
+    buy_amount: Optional[float] = None
     
     @validator('interval')
     def validate_interval(cls, v):
@@ -71,6 +82,16 @@ class MonitorUpdate(BaseModel):
                 raise ValueError('监测间隔不能小于30秒')
             if v > 3600:
                 raise ValueError('监测间隔不能大于3600秒')
+        return v
+    
+    @validator('buy_amount')
+    def validate_buy_amount(cls, v):
+        """验证买入金额"""
+        if v is not None:
+            if v < 0.1:
+                raise ValueError('买入金额不能小于0.1万元')
+            if v > 1000:
+                raise ValueError('买入金额不能大于1000万元')
         return v
 
 
@@ -213,14 +234,14 @@ async def create_monitor(
     创建监控任务
     
     Args:
-        data: 包含stock_id和interval的请求体
+        data: 包含stock_id、interval和buy_amount的请求体
         
     Returns:
         创建的监控任务信息
     """
     service = GSStrategyService(db)
     try:
-        result = service.create_monitor(data.stock_id, data.interval)
+        result = service.create_monitor(data.stock_id, data.interval, data.buy_amount)
         return success_response(result, msg="监控任务创建成功")
     except ValueError as e:
         error_msg = str(e)
@@ -254,6 +275,8 @@ async def update_monitor(
         update_data = {}
         if data.interval is not None:
             update_data['interval'] = data.interval
+        if data.buy_amount is not None:
+            update_data['buy_amount'] = data.buy_amount
         
         result = service.update_monitor(monitor_id, update_data)
         return success_response(result, msg="监控任务更新成功")

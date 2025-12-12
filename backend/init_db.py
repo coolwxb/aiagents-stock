@@ -24,10 +24,22 @@ def init_database():
     # 创建所有表
     Base.metadata.create_all(bind=engine)
     
-    print("✅ 数据库初始化完成！")
+    print("✅ 主数据库初始化完成！")
     print("\n已创建的表:")
     for table in Base.metadata.sorted_tables:
         print(f"  - {table.name}")
+    
+    # 初始化GS策略数据库（独立的SQLite数据库）
+    print("\n正在初始化GS策略数据库...")
+    try:
+        from app.db.gs_strategy_db import GSStrategyDatabase
+        gs_db = GSStrategyDatabase()
+        print("✅ GS策略数据库初始化完成！")
+        print("  - gs_stock_pool")
+        print("  - gs_monitor_tasks")
+        print("  - gs_trade_history")
+    except Exception as e:
+        print(f"⚠️ GS策略数据库初始化失败: {e}")
 
 
 if __name__ == "__main__":

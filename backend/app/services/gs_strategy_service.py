@@ -186,13 +186,14 @@ class GSStrategyService:
             self.logger.error(f"获取监控任务列表失败: {e}")
             raise
     
-    def create_monitor(self, stock_id: int, interval: int = 300) -> Dict:
+    def create_monitor(self, stock_id: int, interval: int = 300, buy_amount: float = 1.0) -> Dict:
         """
         创建监控任务
         
         Args:
             stock_id: 股票池记录ID
             interval: 监测间隔（秒），默认300秒
+            buy_amount: 买入金额（万元），默认1万
             
         Returns:
             创建的监控任务信息
@@ -218,7 +219,8 @@ class GSStrategyService:
                 stock_pool_id=stock_id,
                 stock_code=stock['stock_code'],
                 stock_name=stock['stock_name'],
-                interval=interval
+                interval=interval,
+                buy_amount=buy_amount
             )
             
             # 启动调度器线程
@@ -236,6 +238,7 @@ class GSStrategyService:
                 'stock_code': stock['stock_code'],
                 'stock_name': stock['stock_name'],
                 'interval': interval,
+                'buy_amount': buy_amount,
                 'status': 'running',
                 'started_at': datetime.now().isoformat(),
                 'execution_count': 0,
