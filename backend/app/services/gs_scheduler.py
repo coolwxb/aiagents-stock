@@ -220,8 +220,7 @@ class GSScheduler:
             # 处理信号
             g_buy = signal_data.get('g_buy', 0)
             g_sell = signal_data.get('g_sell', 0)
-        
-            
+
             if g_buy == 1:
                 # 买入信号
                 gs_strategy_db.update_monitor(
@@ -230,9 +229,9 @@ class GSScheduler:
                     last_signal_time=datetime.now().isoformat(),
                     execution_count=execution_count
                 )
-                
+                from app.utils.stock_code import add_market_suffix
                 # 处理买入
-                self._handle_buy_signal(monitor_id, stock_code, stock_name, signal_data)
+                self._handle_buy_signal(monitor_id, add_market_suffix(stock_code), stock_name, signal_data)
                 
             elif g_sell == 1:
                 # 卖出信号
@@ -245,7 +244,7 @@ class GSScheduler:
                 
                 # 处理卖出
                 self._handle_sell_signal(monitor_id, stock_code, stock_name, signal_data)
-                
+           
             else:
                 # 持有信号
                 gs_strategy_db.update_monitor(
@@ -325,7 +324,7 @@ class GSScheduler:
         self.logger.info(f"检测到买入信号: {stock_code} ({stock_name})")
         
         # ========== 买入前检查 ==========
-        
+
         # 1. 检查是否已经持有该股票（持仓数量大于0则跳过）
         position = qmt_client.get_position(stock_code)
         if position and position.get('quantity', 0) > 0:
@@ -341,16 +340,16 @@ class GSScheduler:
                 f"股票 {stock_code} ({stock_name}) 没有委托，等待消息通知"
             )
             return
-        last_order = orders[-1]
+        if len(orders)>0:
 
-       
-        order_status_name = last_order["order_status_name"]
+            last_order = orders[-1]
+            order_status_name = last_order["order_status_name"]
         
-        if order_status_name in ["已报","待报"]:
-            self.logger.warning(
-                f"股票 {stock_code} ({stock_name}) 有未完成的委托: {order_status_name}，等待消息通知"
-            )
-            return
+            if order_status_name in ["已报","待报"]:
+                self.logger.warning(
+                    f"股票 {stock_code} ({stock_name}) 有未完成的委托: {order_status_name}，等待消息通知"
+                )
+                return
         
         # ========== 执行买入 ==========
         
@@ -362,7 +361,7 @@ class GSScheduler:
         
         # 调用QMT买入接口
        
-        order_result = qmt_client.buy(stock_code, buy_quantity, current_price, 'market')
+        order_result = qmt_client.buy(stock_code,buy_quantity, current_price, 'market')
         
         # success 不代表最终成交，只代下单成功
         if order_result.get('success'):
@@ -897,6 +896,7 @@ class GSScheduler:
             is_success: 是否成交成功
             traded_volume: 成交数量
             traded_price: 成交价格
+        
         """
         from app.db.gs_strategy_db import gs_strategy_db
         
@@ -907,8 +907,15 @@ class GSScheduler:
             if not trade:
                 self.logger.debug(f"未找到order_id={order_id}对应的交易记录")
                 return
+            if order_status_name in ["废单","未知"]:
+                # 删除交易记录
+                gs_strategy_db.delete_trade_history(trade['id'])
+                self.logger.info(f"委托结束 {order_status}={order_status_name},交易记录 {trade['id']} 已删除")
+                return
             
             update_data = {}
+            if is_final:
+                update_data["status"] = "close"
             
             # 判断是买入还是卖出订单
             if trade.get('buy_order_id') == order_id:

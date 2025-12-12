@@ -130,7 +130,7 @@ class DataSourceManager:
                         incrementally=True
                     )
                     
-                    return qmt_service.xtdata_module.get_market_data_ex(
+                    data =  qmt_service.xtdata_module.get_market_data_ex(
                         field_list=["time", "open", "high", "low", "close", "volume", "amount"],
                         stock_list=[xt_code],
                         period=period,
@@ -138,8 +138,91 @@ class DataSourceManager:
                         end_time=end_date or '',
                         dividend_type='none'
                     )
+                    return data
+                
+                def _supplement_realtime_kline(data, xt_code):
+                    """补充当日K线实时数据"""
+                    if data is None or xt_code not in data:
+                        return data
+                    
+                    try:
+                        # 获取实时行情数据
+                        quote_data = qmt_service.get_stock_quote(xt_code)
+                        if not quote_data:
+                            print(f"[QMT] ⚠️ 未获取到 {xt_code} 的实时行情数据")
+                            return data
+                        
+                        # 获取实时行情字段
+                        last_price = quote_data.get('lastPrice', 0)
+                        if not last_price or last_price <= 0:
+                            print(f"[QMT] ⚠️ {xt_code} 实时价格无效: {last_price}")
+                            return data
+                        
+                        # 获取当日日期（格式：YYYYMMDD）
+                        today_str = datetime.now().strftime('%Y%m%d')
+                        
+                        # 获取历史数据DataFrame
+                        df = data[xt_code]
+                        
+                        # 检查是否已有当日数据
+                        if len(df) > 0:
+                            # 获取最后一条数据的时间
+                            last_time = df['time'].iloc[-1] if 'time' in df.columns else None
+                            if last_time:
+                                # 将时间戳转换为日期字符串进行比较
+                                try:
+                                    last_date_str = pd.to_datetime(str(last_time)).strftime('%Y%m%d')
+                                    if last_date_str == today_str:
+                                        # 当日数据已存在，更新最后一条记录
+                                        df.loc[df.index[-1], 'close'] = last_price
+                                        df.loc[df.index[-1], 'high'] = max(df['high'].iloc[-1], last_price)
+                                        df.loc[df.index[-1], 'low'] = min(df['low'].iloc[-1], last_price)
+                                        df.loc[df.index[-1], 'volume'] = quote_data.get('volume', df['volume'].iloc[-1])
+                                        df.loc[df.index[-1], 'amount'] = quote_data.get('amount', df['amount'].iloc[-1])
+                                        print(f"[QMT] ✅ 已更新 {xt_code} 当日K线实时数据: close={last_price}")
+                                        data[xt_code] = df
+                                        return data
+                                except Exception as e:
+                                    print(f"[QMT] ⚠️ 解析最后日期失败: {e}")
+                        
+                        # 当日数据不存在，新增一条记录
+                        open_price = quote_data.get('open', last_price)
+                        high_price = quote_data.get('high', last_price)
+                        low_price = quote_data.get('low', last_price)
+                        volume = quote_data.get('volume', 0)
+                        amount = quote_data.get('amount', 0)
+                        
+                        # 构造当日K线数据
+                        # time字段使用与历史数据相同的格式
+                        today_time = int(today_str + '000000000')  # 格式：YYYYMMDD000000000
+                        
+                        new_row = pd.DataFrame({
+                            'time': [today_time],
+                            'open': [open_price if open_price > 0 else last_price],
+                            'high': [high_price if high_price > 0 else last_price],
+                            'low': [low_price if low_price > 0 else last_price],
+                            'close': [last_price],
+                            'volume': [volume],
+                            'amount': [amount]
+                        })
+                        
+                        # 追加到DataFrame
+                        df = pd.concat([df, new_row], ignore_index=True)
+                        data[xt_code] = df
+                        print(f"[QMT] ✅ 已补充 {xt_code} 当日K线实时数据: open={open_price}, high={high_price}, low={low_price}, close={last_price}")
+                        
+                    except Exception as e:
+                        print(f"[QMT] ❌ 补充当日K线实时数据失败: {e}")
+                        import traceback
+                        traceback.print_exc()
+                    
+                    return data
 
                 data = _fetch_xt_data()
+                
+                # 补充当日K线实时数据（仅对日线有效）
+                if period == '1d' and data:
+                    data = _supplement_realtime_kline(data, xt_code)
 
                 # 若未取到数据，尝试先下载再取
                 if data ==None:
