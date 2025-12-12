@@ -157,6 +157,7 @@ class DataSourceManager:
                         if not last_price or last_price <= 0:
                             print(f"[QMT] ⚠️ {xt_code} 实时价格无效: {last_price}")
                             return data
+                        print(f"⚠️ {xt_code} 实时价格： {last_price}")
                         
                         # 获取当日日期（格式：YYYYMMDD）
                         today_str = datetime.now().strftime('%Y%m%d')
